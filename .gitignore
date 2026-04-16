@@ -1,0 +1,23 @@
+# Deno KV storage
+*.sqlite3
+
+# Server
+server/storage/
+
+# Client build output
+client/src/*/bin/
+client/src/*/obj/
+
+# IDE
+.vs/
+.vscode/
+*.user
+*.suo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
