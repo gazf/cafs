@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Cafs.Client.Http;
 
 namespace Cafs.Client.Sync;
@@ -6,7 +7,7 @@ public class SyncEngine
 {
     private readonly CafsHttpClient _httpClient;
     private readonly string _syncRootPath;
-    private Timer? _timer;
+    private System.Threading.Timer? _timer;
 
     public SyncEngine(CafsHttpClient httpClient, string syncRootPath)
     {
@@ -15,46 +16,15 @@ public class SyncEngine
     }
 
     /// <summary>
-    /// Perform a full sync: create placeholders for all server files
-    /// that don't exist locally yet.
+    /// Connectivity check only — placeholders are populated on-demand by
+    /// FetchPlaceholders callbacks when the user navigates in Explorer.
+    /// Pre-creating placeholders conflicts with on-demand population.
     /// </summary>
     public async Task FullSyncAsync()
     {
-        Console.WriteLine("Starting full sync...");
-        await SyncDirectoryAsync("/", _syncRootPath);
-        Console.WriteLine("Full sync completed.");
-    }
-
-    private async Task SyncDirectoryAsync(string serverPath, string localPath)
-    {
-        try
-        {
-            var entries = await _httpClient.ListDirectoryAsync(serverPath);
-
-            foreach (var entry in entries)
-            {
-                var localFilePath = Path.Combine(localPath, entry.Name);
-                var serverFilePath = serverPath.TrimEnd('/') + "/" + entry.Name;
-
-                if (!Path.Exists(localFilePath))
-                {
-                    PlaceholderManager.CreatePlaceholder(localFilePath, entry);
-                }
-
-                if (entry.Type == "directory")
-                {
-                    if (!Directory.Exists(localFilePath))
-                    {
-                        Directory.CreateDirectory(localFilePath);
-                    }
-                    await SyncDirectoryAsync(serverFilePath, localFilePath);
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine($"SyncDirectory error for {serverPath}: {ex.Message}");
-        }
+        Trace.WriteLine("FullSync: verifying server connectivity...");
+        await _httpClient.ListDirectoryAsync("/");
+        Trace.WriteLine("FullSync: ok.");
     }
 
     /// <summary>
@@ -62,7 +32,7 @@ public class SyncEngine
     /// </summary>
     public void StartPeriodicSync(TimeSpan interval)
     {
-        _timer = new Timer(
+        _timer = new System.Threading.Timer(
             async _ =>
             {
                 try { await FullSyncAsync(); }

@@ -6,52 +6,63 @@ public class AppSettings
 {
     public string ServerUrl { get; set; } = "http://localhost:8700";
     public string BearerToken { get; set; } = "";
-    public string SyncRootPath { get; set; } = @"C:\Users\Public\CAFS";
-    public int SyncIntervalSeconds { get; set; } = 300; // 5 minutes
+    public string SyncRootPath { get; set; } = "";
+    public int SyncIntervalSeconds { get; set; } = 300;
+
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        WriteIndented = true
+    };
+
+    public static string ConfigPath =>
+        Path.Combine(AppContext.BaseDirectory, "appsettings.json");
 
     public static AppSettings Load(string[] args)
     {
         var settings = new AppSettings();
 
-        // Try loading from appsettings.json
-        var configPath = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
-        if (File.Exists(configPath))
+        if (File.Exists(ConfigPath))
         {
-            var json = File.ReadAllText(configPath);
-            var loaded = JsonSerializer.Deserialize<AppSettings>(json);
-            if (loaded != null) settings = loaded;
+            try
+            {
+                var json = File.ReadAllText(ConfigPath);
+                var loaded = JsonSerializer.Deserialize<AppSettings>(json);
+                if (loaded != null) settings = loaded;
+            }
+            catch { /* use defaults on parse error */ }
         }
 
-        // Override with command-line args
+        // Default sync root to %USERPROFILE%\CAFS if unset.
+        if (string.IsNullOrWhiteSpace(settings.SyncRootPath))
+        {
+            settings.SyncRootPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                "CAFS");
+        }
+
+        // Command-line overrides.
         for (int i = 0; i < args.Length - 1; i++)
         {
             switch (args[i])
             {
-                case "--server":
-                    settings.ServerUrl = args[++i];
-                    break;
-                case "--token":
-                    settings.BearerToken = args[++i];
-                    break;
-                case "--sync-root":
-                    settings.SyncRootPath = args[++i];
-                    break;
-                case "--sync-interval":
-                    settings.SyncIntervalSeconds = int.Parse(args[++i]);
-                    break;
+                case "--server": settings.ServerUrl = args[++i]; break;
+                case "--token": settings.BearerToken = args[++i]; break;
+                case "--sync-root": settings.SyncRootPath = args[++i]; break;
+                case "--sync-interval": settings.SyncIntervalSeconds = int.Parse(args[++i]); break;
             }
         }
 
         return settings;
     }
 
-    public void Validate()
+    public void Save()
     {
-        if (string.IsNullOrWhiteSpace(ServerUrl))
-            throw new ArgumentException("ServerUrl is required");
-        if (string.IsNullOrWhiteSpace(BearerToken))
-            throw new ArgumentException("BearerToken is required. Use --token <token> or set in appsettings.json");
-        if (string.IsNullOrWhiteSpace(SyncRootPath))
-            throw new ArgumentException("SyncRootPath is required");
+        var json = JsonSerializer.Serialize(this, JsonOptions);
+        File.WriteAllText(ConfigPath, json);
     }
+
+    public bool IsConfigured =>
+        !string.IsNullOrWhiteSpace(ServerUrl) &&
+        !string.IsNullOrWhiteSpace(BearerToken) &&
+        !string.IsNullOrWhiteSpace(SyncRootPath);
 }

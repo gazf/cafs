@@ -54,7 +54,7 @@ export async function listDirectory(
       entries.push({
         name: entry.name,
         type: entry.isDirectory ? "directory" : "file",
-        size: stat.size,
+        size: entry.isDirectory ? 0 : stat.size,
         lastModified: (stat.mtime ?? new Date()).toISOString(),
       });
     }

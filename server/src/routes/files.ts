@@ -49,6 +49,10 @@ export function registerFileRoutes(app: Hono<Env>) {
     const filePath = "/" + wildcard;
     const user = c.get("user");
 
+    if (filePath === "/" || filePath === "") {
+      return c.json({ message: "Refusing to delete storage root" }, 400);
+    }
+
     if (!(await checkPermission(user.id, filePath, "write"))) {
       return c.json({ message: "Forbidden" }, 403);
     }
