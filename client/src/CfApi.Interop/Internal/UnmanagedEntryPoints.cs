@@ -5,7 +5,7 @@ using CfApi.Native;
 
 namespace CfApi.Interop.Internal;
 
-internal static class UnmanagedEntryPoints
+internal static unsafe class UnmanagedEntryPoints
 {
     /// <summary>
     /// 4 つのコールバック + 終端を並べた登録テーブルを呼び出し側のバッファに書き込む。
@@ -13,7 +13,7 @@ internal static class UnmanagedEntryPoints
     /// </summary>
     public static int RegistrationTableSize => 5;
 
-    public static unsafe void BuildRegistrationTable(Span<CF_CALLBACK_REGISTRATION> table)
+    public static void BuildRegistrationTable(Span<CF_CALLBACK_REGISTRATION> table)
     {
         table[0] = new CF_CALLBACK_REGISTRATION
         {
@@ -43,7 +43,7 @@ internal static class UnmanagedEntryPoints
     }
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
-    private static unsafe void OnFetchPlaceholders(CF_CALLBACK_INFO* info, CF_CALLBACK_PARAMETERS* parameters)
+    private static void OnFetchPlaceholders(CF_CALLBACK_INFO* info, CF_CALLBACK_PARAMETERS* parameters)
     {
         var ctx = SyncContext.FromPointer(info->CallbackContext);
         var relativePath = Marshaller.GetRelativePath(info, ctx.SyncRootPath);
@@ -52,31 +52,23 @@ internal static class UnmanagedEntryPoints
         var requestKey = info->RequestKey;
         var correlationVector = (nint)info->CorrelationVector;
 
-        _ = Task.Run(() =>
+        _ = Task.Run(async () =>
         {
-            return ctx.Callbacks.ListAsync(relativePath, CancellationToken.None)
-                .ContinueWith(t =>
-                {
-                    if (t.IsFaulted)
-                    {
-                        Trace.WriteLine($"FetchPlaceholders error: {t.Exception?.GetBaseException().Message}");
-                        return;
-                    }
-                    try
-                    {
-                        Trace.WriteLine($"FetchPlaceholders: {relativePath}");
-                        TransferPlaceholders(connectionKey, transferKey, requestKey, correlationVector, t.Result);
-                    }
-                    catch (Exception ex)
-                    {
-                        Trace.WriteLine($"FetchPlaceholders error: {ex.Message}");
-                    }
-                }, TaskScheduler.Default);
+            try
+            {
+                Trace.WriteLine($"FetchPlaceholders: {relativePath}");
+                var entries = await ctx.Callbacks.ListAsync(relativePath, CancellationToken.None).ConfigureAwait(false);
+                TransferPlaceholders(connectionKey, transferKey, requestKey, correlationVector, entries);
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"FetchPlaceholders error: {ex.Message}");
+            }
         });
     }
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
-    private static unsafe void OnFetchData(CF_CALLBACK_INFO* info, CF_CALLBACK_PARAMETERS* parameters)
+    private static void OnFetchData(CF_CALLBACK_INFO* info, CF_CALLBACK_PARAMETERS* parameters)
     {
         var ctx = SyncContext.FromPointer(info->CallbackContext);
         var relativePath = Marshaller.GetRelativePath(info, ctx.SyncRootPath);
@@ -89,25 +81,29 @@ internal static class UnmanagedEntryPoints
         var cts = new CancellationTokenSource();
         ctx.ActiveFetches[transferKey] = cts;
 
-        _ = Task.Run(() =>
+        _ = Task.Run(async () =>
         {
-            Trace.WriteLine($"FetchData: {relativePath} offset={requiredOffset} length={requiredLength}");
-            var transfer = new DataTransfer(connectionKey, transferKey, requestKey);
-            return ctx.Callbacks.HydrateAsync(relativePath, requiredOffset, requiredLength, transfer, cts.Token)
-                .ContinueWith(t =>
-                {
-                    if (t.IsFaulted)
-                    {
-                        Trace.WriteLine($"FetchData error: {t.Exception?.GetBaseException().Message}");
-                    }
-                    ctx.ActiveFetches.TryRemove(transferKey, out _);
-                    cts.Dispose();
-                }, TaskScheduler.Default);
+            try
+            {
+                Trace.WriteLine($"FetchData: {relativePath} offset={requiredOffset} length={requiredLength}");
+                var transfer = new DataTransfer(connectionKey, transferKey, requestKey);
+                await ctx.Callbacks.HydrateAsync(relativePath, requiredOffset, requiredLength, transfer, cts.Token)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"FetchData error: {ex.Message}");
+            }
+            finally
+            {
+                ctx.ActiveFetches.TryRemove(transferKey, out _);
+                cts.Dispose();
+            }
         });
     }
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
-    private static unsafe void OnCancelFetchData(CF_CALLBACK_INFO* info, CF_CALLBACK_PARAMETERS* parameters)
+    private static void OnCancelFetchData(CF_CALLBACK_INFO* info, CF_CALLBACK_PARAMETERS* parameters)
     {
         try
         {
@@ -124,7 +120,7 @@ internal static class UnmanagedEntryPoints
     }
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
-    private static unsafe void OnNotifyDelete(CF_CALLBACK_INFO* info, CF_CALLBACK_PARAMETERS* parameters)
+    private static void OnNotifyDelete(CF_CALLBACK_INFO* info, CF_CALLBACK_PARAMETERS* parameters)
     {
         var ctx = SyncContext.FromPointer(info->CallbackContext);
         var relativePath = Marshaller.GetRelativePath(info, ctx.SyncRootPath);
@@ -142,24 +138,20 @@ internal static class UnmanagedEntryPoints
             return;
         }
 
-        _ = Task.Run(() =>
+        _ = Task.Run(async () =>
         {
-            return ctx.Callbacks.OnDeleteAsync(relativePath)
-                .ContinueWith(t =>
-                {
-                    int status;
-                    if (t.IsFaulted)
-                    {
-                        Trace.WriteLine($"NotifyDelete error: {t.Exception?.GetBaseException().Message}");
-                        status = unchecked((int)0xC0000022); // STATUS_ACCESS_DENIED
-                    }
-                    else
-                    {
-                        status = t.Result;
-                    }
+            int status = 0;
+            try
+            {
+                status = await ctx.Callbacks.OnDeleteAsync(relativePath).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"NotifyDelete error: {ex.Message}");
+                status = unchecked((int)0xC0000022); // STATUS_ACCESS_DENIED
+            }
 
-                    CfOperations.AckDelete(connectionKey, transferKey, requestKey, status);
-                }, TaskScheduler.Default);
+            CfOperations.AckDelete(connectionKey, transferKey, requestKey, status);
         });
     }
 

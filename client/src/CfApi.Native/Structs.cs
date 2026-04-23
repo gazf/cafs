@@ -57,7 +57,7 @@ public unsafe struct CF_CALLBACK_INFO
     public char* VolumeDosName;
     public uint VolumeSerialNumber;
     public long SyncRootFileId;
-    public char* SyncRootIdentity;
+    public void* SyncRootIdentity;
     public uint SyncRootIdentityLength;
     public long FileId;
     public long FileSize;
@@ -106,7 +106,9 @@ public unsafe struct CF_CALLBACK_PARAMETERS_UNION
     [FieldOffset(0)] public CF_CALLBACK_PARAMETERS_FETCH_PLACEHOLDERS FetchPlaceholders;
 }
 
-[StructLayout(LayoutKind.Sequential)]
+// Union 内の long フィールドが 8 バイトアラインを要求するため Pack = 8 を明示。
+// x64 では uint ParamSentinel の後に 4 バイト暗黙パディングが入り、Union は offset 8 に配置される。
+[StructLayout(LayoutKind.Sequential, Pack = 8)]
 public struct CF_CALLBACK_PARAMETERS
 {
     public uint ParamSentinel;
@@ -190,7 +192,7 @@ public unsafe struct CF_OPERATION_PARAMETERS_UNION
     [FieldOffset(0)] public CF_OPERATION_PARAMETERS_ACK_DELETE AckDelete;
 }
 
-[StructLayout(LayoutKind.Sequential)]
+[StructLayout(LayoutKind.Sequential, Pack = 8)]
 public struct CF_OPERATION_PARAMETERS
 {
     public uint ParamSentinel;
