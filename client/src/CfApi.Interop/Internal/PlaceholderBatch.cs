@@ -45,9 +45,10 @@ internal ref struct PlaceholderBatch
 
             var lastModified = entry.LastModified.ToFileTimeUtc();
 
+            // RelativeFileName / FileIdentity は pin 後に PatchPointers で埋める。
+            // ここでは初期化子で言及せず、構造体ゼロ初期化で null ポインタのままにする。
             placeholders[i] = new CF_PLACEHOLDER_CREATE_INFO
             {
-                RelativeFileName = null, // PatchPointers で埋める
                 FsMetadata = new CF_FS_METADATA
                 {
                     FileSize = entry.IsDirectory ? 0 : entry.Size,
@@ -60,7 +61,6 @@ internal ref struct PlaceholderBatch
                         FileAttributes = entry.IsDirectory ? 0x10u : 0x80u,
                     },
                 },
-                FileIdentity = null, // PatchPointers で埋める
                 FileIdentityLength = (uint)bufBytes,
                 Flags = CF_PLACEHOLDER_CREATE_FLAGS.CF_PLACEHOLDER_CREATE_FLAG_MARK_IN_SYNC
                       | CF_PLACEHOLDER_CREATE_FLAGS.CF_PLACEHOLDER_CREATE_FLAG_SUPERSEDE,

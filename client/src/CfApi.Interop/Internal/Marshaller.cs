@@ -3,7 +3,7 @@ using CfApi.Native;
 
 namespace CfApi.Interop.Internal;
 
-internal static unsafe class Marshaller
+internal static class Marshaller
 {
     // 変換後は先頭 '/' を追加する分最大 +1 なので、入力が 512 以内なら stackalloc 520 で収まる。
     private const int StackallocInputLimit = 512;
@@ -13,7 +13,7 @@ internal static unsafe class Marshaller
     /// NormalizedPath ("C:\SyncRoot\sub\file") から syncRoot を剥いで "/sub/file" 形式にする。
     /// prefix 除去と '\\' → '/' 変換を 1 パスで実施し、終段で string を 1 回だけ生成する。
     /// </summary>
-    public static string GetRelativePath(CF_CALLBACK_INFO* info, string syncRootPath)
+    public static unsafe string GetRelativePath(CF_CALLBACK_INFO* info, string syncRootPath)
     {
         if (info->NormalizedPath is null)
             return "/";

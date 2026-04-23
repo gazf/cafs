@@ -4,7 +4,7 @@ using CfApi.Native;
 
 namespace CfApi.Interop.Internal;
 
-internal static unsafe class CfOperations
+internal static class CfOperations
 {
     public static int TransferData(
         ulong connectionKey,
@@ -14,37 +14,40 @@ internal static unsafe class CfOperations
         long offset,
         int completionStatus = 0)
     {
-        fixed (byte* pData = buffer)
+        unsafe
         {
-            var info = new CF_OPERATION_INFO
+            fixed (byte* pData = buffer)
             {
-                StructSize = (uint)Unsafe.SizeOf<CF_OPERATION_INFO>(),
-                Type = CF_OPERATION_TYPE.CF_OPERATION_TYPE_TRANSFER_DATA,
-                ConnectionKey = connectionKey,
-                TransferKey = transferKey,
-                RequestKey = requestKey,
-            };
-
-            var parameters = new CF_OPERATION_PARAMETERS
-            {
-                ParamSentinel = (uint)Unsafe.SizeOf<CF_OPERATION_PARAMETERS>(),
-                Union = new CF_OPERATION_PARAMETERS_UNION
+                var info = new CF_OPERATION_INFO
                 {
-                    TransferData = new CF_OPERATION_PARAMETERS_TRANSFER_DATA
-                    {
-                        Flags = CF_OPERATION_TRANSFER_DATA_FLAGS.CF_OPERATION_TRANSFER_DATA_FLAG_NONE,
-                        CompletionStatus = completionStatus,
-                        Buffer = pData,
-                        Offset = offset,
-                        Length = buffer.Length,
-                    },
-                },
-            };
+                    StructSize = (uint)Unsafe.SizeOf<CF_OPERATION_INFO>(),
+                    Type = CF_OPERATION_TYPE.CF_OPERATION_TYPE_TRANSFER_DATA,
+                    ConnectionKey = connectionKey,
+                    TransferKey = transferKey,
+                    RequestKey = requestKey,
+                };
 
-            var hr = CldApi.CfExecute(&info, &parameters);
-            if (CldApi.Failed(hr))
-                Trace.WriteLine($"CfExecute TransferData failed: 0x{hr:X8}");
-            return hr;
+                var parameters = new CF_OPERATION_PARAMETERS
+                {
+                    ParamSentinel = (uint)Unsafe.SizeOf<CF_OPERATION_PARAMETERS>(),
+                    Union = new CF_OPERATION_PARAMETERS_UNION
+                    {
+                        TransferData = new CF_OPERATION_PARAMETERS_TRANSFER_DATA
+                        {
+                            Flags = CF_OPERATION_TRANSFER_DATA_FLAGS.CF_OPERATION_TRANSFER_DATA_FLAG_NONE,
+                            CompletionStatus = completionStatus,
+                            Buffer = pData,
+                            Offset = offset,
+                            Length = buffer.Length,
+                        },
+                    },
+                };
+
+                var hr = CldApi.CfExecute(&info, &parameters);
+                if (CldApi.Failed(hr))
+                    Trace.WriteLine($"CfExecute TransferData failed: 0x{hr:X8}");
+                return hr;
+            }
         }
     }
 
@@ -54,36 +57,39 @@ internal static unsafe class CfOperations
         long requestKey,
         nint correlationVector)
     {
-        var info = new CF_OPERATION_INFO
+        unsafe
         {
-            StructSize = (uint)Unsafe.SizeOf<CF_OPERATION_INFO>(),
-            Type = CF_OPERATION_TYPE.CF_OPERATION_TYPE_TRANSFER_PLACEHOLDERS,
-            ConnectionKey = connectionKey,
-            TransferKey = transferKey,
-            RequestKey = requestKey,
-            CorrelationVector = (void*)correlationVector,
-        };
-
-        var parameters = new CF_OPERATION_PARAMETERS
-        {
-            ParamSentinel = (uint)Unsafe.SizeOf<CF_OPERATION_PARAMETERS>(),
-            Union = new CF_OPERATION_PARAMETERS_UNION
+            var info = new CF_OPERATION_INFO
             {
-                TransferPlaceholders = new CF_OPERATION_PARAMETERS_TRANSFER_PLACEHOLDERS
-                {
-                    Flags = CF_OPERATION_TRANSFER_PLACEHOLDERS_FLAGS.CF_OPERATION_TRANSFER_PLACEHOLDERS_FLAG_NONE,
-                    CompletionStatus = 0,
-                    PlaceholderTotalCount = 0,
-                    PlaceholderArray = null,
-                    PlaceholderCount = 0,
-                },
-            },
-        };
+                StructSize = (uint)Unsafe.SizeOf<CF_OPERATION_INFO>(),
+                Type = CF_OPERATION_TYPE.CF_OPERATION_TYPE_TRANSFER_PLACEHOLDERS,
+                ConnectionKey = connectionKey,
+                TransferKey = transferKey,
+                RequestKey = requestKey,
+                CorrelationVector = (void*)correlationVector,
+            };
 
-        var hr = CldApi.CfExecute(&info, &parameters);
-        if (CldApi.Failed(hr))
-            Trace.WriteLine($"CfExecute TransferPlaceholders (empty) failed: 0x{hr:X8}");
-        return hr;
+            var parameters = new CF_OPERATION_PARAMETERS
+            {
+                ParamSentinel = (uint)Unsafe.SizeOf<CF_OPERATION_PARAMETERS>(),
+                Union = new CF_OPERATION_PARAMETERS_UNION
+                {
+                    TransferPlaceholders = new CF_OPERATION_PARAMETERS_TRANSFER_PLACEHOLDERS
+                    {
+                        Flags = CF_OPERATION_TRANSFER_PLACEHOLDERS_FLAGS.CF_OPERATION_TRANSFER_PLACEHOLDERS_FLAG_NONE,
+                        CompletionStatus = 0,
+                        PlaceholderTotalCount = 0,
+                        PlaceholderArray = null,
+                        PlaceholderCount = 0,
+                    },
+                },
+            };
+
+            var hr = CldApi.CfExecute(&info, &parameters);
+            if (CldApi.Failed(hr))
+                Trace.WriteLine($"CfExecute TransferPlaceholders (empty) failed: 0x{hr:X8}");
+            return hr;
+        }
     }
 
     public static int TransferPlaceholders(
@@ -94,41 +100,44 @@ internal static unsafe class CfOperations
         ref PlaceholderBatch batch,
         int completionStatus = 0)
     {
-        var info = new CF_OPERATION_INFO
+        unsafe
         {
-            StructSize = (uint)Unsafe.SizeOf<CF_OPERATION_INFO>(),
-            Type = CF_OPERATION_TYPE.CF_OPERATION_TYPE_TRANSFER_PLACEHOLDERS,
-            ConnectionKey = connectionKey,
-            TransferKey = transferKey,
-            RequestKey = requestKey,
-            CorrelationVector = (void*)correlationVector,
-        };
-
-        fixed (char* pNames = batch.Names)
-        fixed (CF_PLACEHOLDER_CREATE_INFO* pPlaceholders = batch.Placeholders)
-        {
-            batch.PatchPointers(pNames, pPlaceholders);
-
-            var parameters = new CF_OPERATION_PARAMETERS
+            var info = new CF_OPERATION_INFO
             {
-                ParamSentinel = (uint)Unsafe.SizeOf<CF_OPERATION_PARAMETERS>(),
-                Union = new CF_OPERATION_PARAMETERS_UNION
-                {
-                    TransferPlaceholders = new CF_OPERATION_PARAMETERS_TRANSFER_PLACEHOLDERS
-                    {
-                        Flags = CF_OPERATION_TRANSFER_PLACEHOLDERS_FLAGS.CF_OPERATION_TRANSFER_PLACEHOLDERS_FLAG_NONE,
-                        CompletionStatus = completionStatus,
-                        PlaceholderTotalCount = batch.Count,
-                        PlaceholderArray = pPlaceholders,
-                        PlaceholderCount = (uint)batch.Count,
-                    },
-                },
+                StructSize = (uint)Unsafe.SizeOf<CF_OPERATION_INFO>(),
+                Type = CF_OPERATION_TYPE.CF_OPERATION_TYPE_TRANSFER_PLACEHOLDERS,
+                ConnectionKey = connectionKey,
+                TransferKey = transferKey,
+                RequestKey = requestKey,
+                CorrelationVector = (void*)correlationVector,
             };
 
-            var hr = CldApi.CfExecute(&info, &parameters);
-            if (CldApi.Failed(hr))
-                Trace.WriteLine($"CfExecute TransferPlaceholders failed: 0x{hr:X8}");
-            return hr;
+            fixed (char* pNames = batch.Names)
+            fixed (CF_PLACEHOLDER_CREATE_INFO* pPlaceholders = batch.Placeholders)
+            {
+                batch.PatchPointers(pNames, pPlaceholders);
+
+                var parameters = new CF_OPERATION_PARAMETERS
+                {
+                    ParamSentinel = (uint)Unsafe.SizeOf<CF_OPERATION_PARAMETERS>(),
+                    Union = new CF_OPERATION_PARAMETERS_UNION
+                    {
+                        TransferPlaceholders = new CF_OPERATION_PARAMETERS_TRANSFER_PLACEHOLDERS
+                        {
+                            Flags = CF_OPERATION_TRANSFER_PLACEHOLDERS_FLAGS.CF_OPERATION_TRANSFER_PLACEHOLDERS_FLAG_NONE,
+                            CompletionStatus = completionStatus,
+                            PlaceholderTotalCount = batch.Count,
+                            PlaceholderArray = pPlaceholders,
+                            PlaceholderCount = (uint)batch.Count,
+                        },
+                    },
+                };
+
+                var hr = CldApi.CfExecute(&info, &parameters);
+                if (CldApi.Failed(hr))
+                    Trace.WriteLine($"CfExecute TransferPlaceholders failed: 0x{hr:X8}");
+                return hr;
+            }
         }
     }
 
@@ -138,31 +147,34 @@ internal static unsafe class CfOperations
         long requestKey,
         int completionStatus)
     {
-        var info = new CF_OPERATION_INFO
+        unsafe
         {
-            StructSize = (uint)Unsafe.SizeOf<CF_OPERATION_INFO>(),
-            Type = CF_OPERATION_TYPE.CF_OPERATION_TYPE_ACK_DELETE,
-            ConnectionKey = connectionKey,
-            TransferKey = transferKey,
-            RequestKey = requestKey,
-        };
-
-        var parameters = new CF_OPERATION_PARAMETERS
-        {
-            ParamSentinel = (uint)Unsafe.SizeOf<CF_OPERATION_PARAMETERS>(),
-            Union = new CF_OPERATION_PARAMETERS_UNION
+            var info = new CF_OPERATION_INFO
             {
-                AckDelete = new CF_OPERATION_PARAMETERS_ACK_DELETE
-                {
-                    Flags = CF_OPERATION_ACK_DELETE_FLAGS.CF_OPERATION_ACK_DELETE_FLAG_NONE,
-                    CompletionStatus = completionStatus,
-                },
-            },
-        };
+                StructSize = (uint)Unsafe.SizeOf<CF_OPERATION_INFO>(),
+                Type = CF_OPERATION_TYPE.CF_OPERATION_TYPE_ACK_DELETE,
+                ConnectionKey = connectionKey,
+                TransferKey = transferKey,
+                RequestKey = requestKey,
+            };
 
-        var hr = CldApi.CfExecute(&info, &parameters);
-        if (CldApi.Failed(hr))
-            Trace.WriteLine($"CfExecute AckDelete failed: 0x{hr:X8}");
-        return hr;
+            var parameters = new CF_OPERATION_PARAMETERS
+            {
+                ParamSentinel = (uint)Unsafe.SizeOf<CF_OPERATION_PARAMETERS>(),
+                Union = new CF_OPERATION_PARAMETERS_UNION
+                {
+                    AckDelete = new CF_OPERATION_PARAMETERS_ACK_DELETE
+                    {
+                        Flags = CF_OPERATION_ACK_DELETE_FLAGS.CF_OPERATION_ACK_DELETE_FLAG_NONE,
+                        CompletionStatus = completionStatus,
+                    },
+                },
+            };
+
+            var hr = CldApi.CfExecute(&info, &parameters);
+            if (CldApi.Failed(hr))
+                Trace.WriteLine($"CfExecute AckDelete failed: 0x{hr:X8}");
+            return hr;
+        }
     }
 }
