@@ -75,7 +75,7 @@ public static unsafe partial class CldApi
         out IntPtr protectedHandle);
 
     [LibraryImport(CldApiDll, EntryPoint = "CfCloseHandle")]
-    public static partial void CfCloseHandle(IntPtr fileHandle);
+    public static partial int CfCloseHandle(IntPtr fileHandle);
 
     [LibraryImport(CldApiDll, EntryPoint = "CfReferenceProtectedHandle")]
     [return: MarshalAs(UnmanagedType.Bool)]
