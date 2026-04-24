@@ -125,6 +125,14 @@ public struct FILE_BASIC_INFO
     public uint FileAttributes;
 }
 
+// CfUpdatePlaceholder の DehydrateRangeArray 等で使う。LARGE_INTEGER の値をそのまま long で保持。
+[StructLayout(LayoutKind.Sequential)]
+public struct CF_FILE_RANGE
+{
+    public long StartingOffset;
+    public long Length;
+}
+
 [StructLayout(LayoutKind.Sequential)]
 public struct CF_FS_METADATA
 {

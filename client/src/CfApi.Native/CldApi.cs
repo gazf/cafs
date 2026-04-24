@@ -40,6 +40,53 @@ public static unsafe partial class CldApi
         CF_CREATE_FLAGS createFlags,
         out uint entriesProcessed);
 
+    [LibraryImport(CldApiDll, EntryPoint = "CfUpdatePlaceholder")]
+    public static partial int CfUpdatePlaceholder(
+        IntPtr fileHandle,
+        CF_FS_METADATA* fsMetadata,
+        void* fileIdentity,
+        uint fileIdentityLength,
+        CF_FILE_RANGE* dehydrateRangeArray,
+        uint dehydrateRangeCount,
+        CF_UPDATE_FLAGS updateFlags,
+        long* inSyncUsn,
+        void* overlapped);
+
+    [LibraryImport(CldApiDll, EntryPoint = "CfSetInSyncState")]
+    public static partial int CfSetInSyncState(
+        IntPtr fileHandle,
+        CF_IN_SYNC_STATE inSyncState,
+        CF_SET_IN_SYNC_FLAGS inSyncFlags,
+        long* inSyncUsn);
+
+    [LibraryImport(CldApiDll, EntryPoint = "CfConvertToPlaceholder")]
+    public static partial int CfConvertToPlaceholder(
+        IntPtr fileHandle,
+        void* fileIdentity,
+        uint fileIdentityLength,
+        CF_CONVERT_FLAGS convertFlags,
+        long* convertUsn,
+        void* overlapped);
+
+    [LibraryImport(CldApiDll, EntryPoint = "CfOpenFileWithOplock", StringMarshalling = StringMarshalling.Utf16)]
+    public static partial int CfOpenFileWithOplock(
+        string filePath,
+        CF_OPEN_FILE_FLAGS flags,
+        out IntPtr protectedHandle);
+
+    [LibraryImport(CldApiDll, EntryPoint = "CfCloseHandle")]
+    public static partial void CfCloseHandle(IntPtr fileHandle);
+
+    [LibraryImport(CldApiDll, EntryPoint = "CfReferenceProtectedHandle")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool CfReferenceProtectedHandle(IntPtr protectedHandle);
+
+    [LibraryImport(CldApiDll, EntryPoint = "CfReleaseProtectedHandle")]
+    public static partial void CfReleaseProtectedHandle(IntPtr protectedHandle);
+
+    [LibraryImport(CldApiDll, EntryPoint = "CfGetWin32HandleFromProtectedHandle")]
+    public static partial IntPtr CfGetWin32HandleFromProtectedHandle(IntPtr protectedHandle);
+
     public static bool Failed(int hresult) => hresult < 0;
     public static bool Succeeded(int hresult) => hresult >= 0;
 }
