@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Diagnostics;
+using Microsoft.Win32.SafeHandles;
 using Cafs.Core.Abstractions;
 using Cafs.Core.Models;
 using CfApi.Interop;
@@ -99,13 +100,17 @@ public sealed class CafsSyncCallbacks : ISyncCallbacks
             handle.SetInSyncState(false);
 
             // (4) heartbeat 開始 → upload
+            //     File.OpenRead だとシェアバイオレーション (ERROR_SHARING_VIOLATION) になるため、
+            //     OplockFileHandle が保持している Win32 handle から FileStream を作って読む。
+            //     ownsHandle: false で SafeFileHandle を作り、handle 本体の close は OplockFileHandle 側に任せる。
             UploadResult uploadResult;
             using (var heartbeatCts = CancellationTokenSource.CreateLinkedTokenSource(ct))
             {
                 var heartbeat = StartLockHeartbeat(relativePath, heartbeatCts.Token);
                 try
                 {
-                    await using var stream = File.OpenRead(localPath);
+                    var safeHandle = new SafeFileHandle(handle.Win32Handle, ownsHandle: false);
+                    await using var stream = new FileStream(safeHandle, FileAccess.Read);
                     uploadResult = await _server.UploadFileAsync(relativePath, stream, ct).ConfigureAwait(false);
                 }
                 finally

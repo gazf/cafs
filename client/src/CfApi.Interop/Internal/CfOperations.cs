@@ -191,7 +191,12 @@ internal static class CfOperations
             var win32Handle = CldApi.CfGetWin32HandleFromProtectedHandle(handle);
             hr = CldApi.CfDehydratePlaceholder(win32Handle, 0, length, CF_DEHYDRATE_FLAGS.CF_DEHYDRATE_FLAG_NONE, IntPtr.Zero);
             if (CldApi.Failed(hr))
-                Trace.WriteLine($"CfDehydratePlaceholder failed 0x{hr:X8} at '{localPath}'");
+            {
+                // 0x80070179 = ERROR_CLOUD_FILE_NOT_IN_SYNC: アップロード失敗時にローカル変更を保持するため
+                // NOT_IN_SYNC 状態にしている結果。dehydrate を skip する想定挙動なのでログを抑制。
+                if ((uint)hr != 0x80070179u)
+                    Trace.WriteLine($"CfDehydratePlaceholder failed 0x{hr:X8} at '{localPath}'");
+            }
         }
         finally
         {
