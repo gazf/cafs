@@ -6,6 +6,7 @@ import {
   readFile,
   writeFile,
   deleteFile,
+  statFile,
   FileServiceError,
 } from "../services/file.service.ts";
 import { checkPermission } from "../services/auth.service.ts";
@@ -19,11 +20,21 @@ type Env = {
 };
 
 export function registerFileRoutes(app: Hono<Env>) {
-  // GET /tree — recursive full tree listing
+  // GET /tree — recursive full tree listing (read 権限のあるノードのみ返す)
   app.get("/tree", async (c) => {
+    const user = c.get("user");
     try {
       const tree = await getTree();
-      return c.json(tree);
+      // 各ノードを read 権限でフィルタ。並列に判定して結果を保つ。
+      const checks = await Promise.all(
+        tree.map(async (n) =>
+          (await checkPermission(user.id, n.path, "read")) ? n : null
+        )
+      );
+      const filtered = checks.filter(
+        (n): n is (typeof tree)[number] => n !== null
+      );
+      return c.json(filtered);
     } catch (e) {
       if (e instanceof FileServiceError) {
         return c.json({ message: e.message }, e.statusCode as 400);
@@ -152,7 +163,15 @@ export function registerFileRoutes(app: Hono<Env>) {
         return c.json({ message: "Request body required" }, 400);
       }
       await writeFile(filePath, body);
-      return c.json({ message: "OK" }, 200);
+      // Return up-to-date metadata so the client can refresh its placeholder.
+      const stat = await statFile(filePath);
+      return c.json(
+        {
+          size: stat.size,
+          lastModified: stat.lastModified,
+        },
+        200
+      );
     } catch (e) {
       if (e instanceof FileServiceError) {
         return c.json({ message: e.message }, e.statusCode as 400);

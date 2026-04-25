@@ -83,7 +83,7 @@ public sealed class TrayAppContext : ApplicationContext
             SyncRootRegistrar.Register(new SyncRootOptions(
                 _settings.SyncRootPath, ProviderName, ProviderVersion, ProviderId));
 
-            var callbacks = new CafsSyncCallbacks(_server);
+            var callbacks = new CafsSyncCallbacks(_server, _settings.SyncRootPath);
             _syncProvider = new SyncProvider(_settings.SyncRootPath, callbacks);
 
             // ALWAYS_FULL: create all placeholders before connecting,
@@ -218,7 +218,7 @@ public sealed class TrayAppContext : ApplicationContext
             Directory.CreateDirectory(path);
             SyncRootRegistrar.Register(new SyncRootOptions(path, ProviderName, ProviderVersion, ProviderId));
 
-            var callbacks = new CafsSyncCallbacks(_server!);
+            var callbacks = new CafsSyncCallbacks(_server!, path);
             _syncProvider = new SyncProvider(path, callbacks);
             _syncProvider.Connect();
 

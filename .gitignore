@@ -11,6 +11,7 @@ client/src/*/obj/
 # IDE
 .vs/
 .vscode/
+.claude/
 *.user
 *.suo
 

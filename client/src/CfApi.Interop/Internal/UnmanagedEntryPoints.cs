@@ -7,7 +7,7 @@ namespace CfApi.Interop.Internal;
 
 internal static class UnmanagedEntryPoints
 {
-    public static int RegistrationTableSize => 5;
+    public static int RegistrationTableSize => 7;
 
     public static unsafe void BuildRegistrationTable(Span<CF_CALLBACK_REGISTRATION> table)
     {
@@ -28,10 +28,20 @@ internal static class UnmanagedEntryPoints
         };
         table[3] = new CF_CALLBACK_REGISTRATION
         {
+            Type = CF_CALLBACK_TYPE.CF_CALLBACK_TYPE_NOTIFY_FILE_OPEN_COMPLETION,
+            Callback = &OnOpenCompletion,
+        };
+        table[4] = new CF_CALLBACK_REGISTRATION
+        {
+            Type = CF_CALLBACK_TYPE.CF_CALLBACK_TYPE_NOTIFY_FILE_CLOSE_COMPLETION,
+            Callback = &OnCloseCompletion,
+        };
+        table[5] = new CF_CALLBACK_REGISTRATION
+        {
             Type = CF_CALLBACK_TYPE.CF_CALLBACK_TYPE_NOTIFY_DELETE,
             Callback = &OnNotifyDelete,
         };
-        table[4] = new CF_CALLBACK_REGISTRATION
+        table[6] = new CF_CALLBACK_REGISTRATION
         {
             Type = CF_CALLBACK_TYPE.CF_CALLBACK_TYPE_NONE,
             Callback = null,
@@ -49,7 +59,8 @@ internal static class UnmanagedEntryPoints
         var requiredOffset = parameters->Union.FetchData.RequiredFileOffset;
         var requiredLength = parameters->Union.FetchData.RequiredLength;
 
-        var cts = new CancellationTokenSource();
+        // shutdown と CancelFetchData の両方でキャンセルできるよう linked CTS。
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(ctx.ShutdownCts.Token);
         ctx.ActiveFetches[transferKey] = cts;
         _ = DispatchFetchDataAsync(ctx, relativePath, connectionKey, transferKey, requestKey, requiredOffset, requiredLength, cts);
     }
@@ -60,7 +71,7 @@ internal static class UnmanagedEntryPoints
         long requiredOffset, long requiredLength, CancellationTokenSource cts)
     {
         var transfer = new DataTransfer(connectionKey, transferKey, requestKey);
-        int completionStatus = 0;
+        bool failed = false;
         try
         {
             Trace.WriteLine($"FetchData: {relativePath} offset={requiredOffset} length={requiredLength}");
@@ -71,12 +82,15 @@ internal static class UnmanagedEntryPoints
         catch (Exception ex)
         {
             Trace.WriteLine($"FetchData error: {ex.Message}");
-            completionStatus = unchecked((int)0xC0000001); // STATUS_UNSUCCESSFUL
+            failed = true;
         }
         finally
         {
-            // Signal CfApi that transfer is complete (required even on success).
-            transfer.Complete(completionStatus);
+            // 成功時は CfExecute を追加で呼ばない: 必要な範囲を transfer.Write で
+            // 配信し終えれば CFS は転送完了と認識する。失敗時のみ NTSTATUS 付きで
+            // 完了通知 (これがないと OS 側で永遠に待ち続ける) を送る。
+            if (failed)
+                transfer.Fail(unchecked((int)0xC0000001)); // STATUS_UNSUCCESSFUL
             ctx.ActiveFetches.TryRemove(transferKey, out _);
             cts.Dispose();
         }
@@ -111,6 +125,106 @@ internal static class UnmanagedEntryPoints
     }
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
+    private static unsafe void OnOpenCompletion(CF_CALLBACK_INFO* info, CF_CALLBACK_PARAMETERS* parameters)
+    {
+        // open 時点では何も dispatch しない。close 時の変更検知用に LastWriteTime のスナップショットだけ取る。
+        // (ロック取得は close 時に modified=true の場合のみ行う方針 — issue #12)
+        var ctx = SyncContext.FromPointer(info->CallbackContext);
+        var relativePath = Marshaller.GetRelativePath(info, ctx.SyncRootPath);
+        if (string.IsNullOrEmpty(relativePath) || relativePath == "/")
+        {
+            Trace.WriteLine($"FileOpen: skip (root or empty): '{relativePath}'");
+            return;
+        }
+
+        var localPath = Path.Combine(ctx.SyncRootPath, relativePath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+        if (!File.Exists(localPath))
+        {
+            Trace.WriteLine($"FileOpen: skip (not file or missing): '{localPath}'");
+            return;
+        }
+
+        var writeTime = File.GetLastWriteTimeUtc(localPath);
+        ctx.OpenFileWriteTimes[relativePath] = writeTime;
+        Trace.WriteLine($"FileOpen: {relativePath} (writeTime={writeTime:O})");
+    }
+
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
+    private static unsafe void OnCloseCompletion(CF_CALLBACK_INFO* info, CF_CALLBACK_PARAMETERS* parameters)
+    {
+        var ctx = SyncContext.FromPointer(info->CallbackContext);
+        var relativePath = Marshaller.GetRelativePath(info, ctx.SyncRootPath);
+        if (string.IsNullOrEmpty(relativePath) || relativePath == "/") return;
+
+        var localPath = Path.Combine(ctx.SyncRootPath, relativePath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+        var isDeleted = (parameters->Union.CloseCompletion.Flags & CF_CALLBACK_CLOSE_COMPLETION_FLAGS.CF_CALLBACK_CLOSE_COMPLETION_FLAG_DELETED) != 0;
+
+        bool isModified = false;
+        if (!isDeleted && File.Exists(localPath))
+        {
+            var currentWriteTime = File.GetLastWriteTimeUtc(localPath);
+
+            // 第1検出: open/close ウィンドウ内で writeTime が変わった
+            if (ctx.OpenFileWriteTimes.TryRemove(relativePath, out var openWriteTime)
+                && currentWriteTime != openWriteTime)
+            {
+                isModified = true;
+            }
+
+            // 第2検出: 最後に同期した時刻より新しい (= ウィンドウ外で書き込まれた)
+            // Notepad の save-to-temp+rename や autosave で OPEN/CLOSE を伴わない
+            // 書き込みもこちらで拾える。
+            if (!isModified
+                && ctx.LastSyncedWriteTimes.TryGetValue(relativePath, out var lastSynced)
+                && currentWriteTime > lastSynced)
+            {
+                isModified = true;
+            }
+        }
+        else
+        {
+            ctx.OpenFileWriteTimes.TryRemove(relativePath, out _);
+        }
+
+        _ = DispatchCloseAsync(ctx, relativePath, localPath, isDeleted, isModified);
+    }
+
+    private static async Task DispatchCloseAsync(
+        SyncContext ctx, string relativePath, string localPath, bool isDeleted, bool isModified)
+    {
+        Trace.WriteLine($"FileClose: {relativePath} modified={isModified} deleted={isDeleted}");
+
+        // dehydrate するか否かは callback の戻り値で決定:
+        //   true  → アップロード成功 or データを別所に退避済み → dehydrate OK
+        //   false → アップロード失敗 → local データを保持 (再送機会を残す)
+        // 例外時は false 扱い (= dehydrate しない)。
+        bool safeToDehydrate = false;
+        try
+        {
+            safeToDehydrate = await ctx.Callbacks
+                .OnFileCloseAsync(relativePath, isDeleted, isModified, ctx.ShutdownCts.Token)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Trace.WriteLine($"FileClose error: {ex.Message}");
+        }
+
+        if (isDeleted)
+        {
+            ctx.LastSyncedWriteTimes.TryRemove(relativePath, out _);
+            return;
+        }
+
+        if (safeToDehydrate && File.Exists(localPath))
+        {
+            // 同期完了 (アップロード成功 or 純粋な read) → 現在の writeTime を「最後に同期した時刻」として記録
+            ctx.LastSyncedWriteTimes[relativePath] = File.GetLastWriteTimeUtc(localPath);
+            CfOperations.DehydratePlaceholder(localPath);
+        }
+    }
+
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
     private static unsafe void OnNotifyDelete(CF_CALLBACK_INFO* info, CF_CALLBACK_PARAMETERS* parameters)
     {
         var ctx = SyncContext.FromPointer(info->CallbackContext);
@@ -139,7 +253,7 @@ internal static class UnmanagedEntryPoints
         int status;
         try
         {
-            status = await ctx.Callbacks.OnDeleteAsync(relativePath).ConfigureAwait(false);
+            status = await ctx.Callbacks.OnDeleteAsync(relativePath, ctx.ShutdownCts.Token).ConfigureAwait(false);
         }
         catch (Exception ex)
         {

@@ -20,8 +20,11 @@ public readonly struct DataTransfer
         CfOperations.TransferData(_connectionKey, _transferKey, _requestKey, chunk, offset);
     }
 
-    // CfApi requires an explicit zero-length call to signal end of transfer.
-    internal void Complete(int ntstatus = 0)
+    /// <summary>
+    /// 転送失敗を CFS に通知する。NTSTATUS エラーコードで CompletionStatus を付ける。
+    /// 成功時は呼ぶ必要なし — Write で必要範囲を配信し終えれば CFS が転送完了と判断する。
+    /// </summary>
+    internal void Fail(int ntstatus)
     {
         CfOperations.TransferData(_connectionKey, _transferKey, _requestKey, ReadOnlySpan<byte>.Empty, 0, ntstatus);
     }

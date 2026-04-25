@@ -98,12 +98,26 @@ public unsafe struct CF_CALLBACK_PARAMETERS_FETCH_PLACEHOLDERS
     public char* Pattern;
 }
 
+[StructLayout(LayoutKind.Sequential)]
+public struct CF_CALLBACK_PARAMETERS_OPEN_COMPLETION
+{
+    public CF_CALLBACK_OPEN_COMPLETION_FLAGS Flags;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+public struct CF_CALLBACK_PARAMETERS_CLOSE_COMPLETION
+{
+    public CF_CALLBACK_CLOSE_COMPLETION_FLAGS Flags;
+}
+
 [StructLayout(LayoutKind.Explicit)]
 public unsafe struct CF_CALLBACK_PARAMETERS_UNION
 {
     [FieldOffset(0)] public CF_CALLBACK_PARAMETERS_FETCH_DATA FetchData;
     [FieldOffset(0)] public CF_CALLBACK_PARAMETERS_CANCEL_FETCH_DATA Cancel;
     [FieldOffset(0)] public CF_CALLBACK_PARAMETERS_FETCH_PLACEHOLDERS FetchPlaceholders;
+    [FieldOffset(0)] public CF_CALLBACK_PARAMETERS_OPEN_COMPLETION OpenCompletion;
+    [FieldOffset(0)] public CF_CALLBACK_PARAMETERS_CLOSE_COMPLETION CloseCompletion;
 }
 
 // Union 内の long フィールドが 8 バイトアラインを要求するため Pack = 8 を明示。

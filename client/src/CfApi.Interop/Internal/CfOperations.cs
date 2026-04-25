@@ -175,6 +175,35 @@ internal static class CfOperations
         }
     }
 
+    public static void DehydratePlaceholder(string localPath)
+    {
+        var length = new FileInfo(localPath).Length;
+        if (length == 0) return;
+
+        var hr = CldApi.CfOpenFileWithOplock(localPath, CF_OPEN_FILE_FLAGS.CF_OPEN_FILE_FLAG_WRITE_ACCESS, out var handle);
+        if (CldApi.Failed(hr))
+        {
+            Trace.WriteLine($"DehydratePlaceholder: CfOpenFileWithOplock failed 0x{hr:X8} at '{localPath}'");
+            return;
+        }
+        try
+        {
+            var win32Handle = CldApi.CfGetWin32HandleFromProtectedHandle(handle);
+            hr = CldApi.CfDehydratePlaceholder(win32Handle, 0, length, CF_DEHYDRATE_FLAGS.CF_DEHYDRATE_FLAG_NONE, IntPtr.Zero);
+            if (CldApi.Failed(hr))
+            {
+                // 0x80070179 = ERROR_CLOUD_FILE_NOT_IN_SYNC: アップロード失敗時にローカル変更を保持するため
+                // NOT_IN_SYNC 状態にしている結果。dehydrate を skip する想定挙動なのでログを抑制。
+                if ((uint)hr != 0x80070179u)
+                    Trace.WriteLine($"CfDehydratePlaceholder failed 0x{hr:X8} at '{localPath}'");
+            }
+        }
+        finally
+        {
+            CldApi.CfCloseHandle(handle);
+        }
+    }
+
     public static int AckDelete(
         ulong connectionKey,
         long transferKey,
