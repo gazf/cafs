@@ -128,12 +128,22 @@ internal static class UnmanagedEntryPoints
         // (ロック取得は close 時に modified=true の場合のみ行う方針 — issue #12)
         var ctx = SyncContext.FromPointer(info->CallbackContext);
         var relativePath = Marshaller.GetRelativePath(info, ctx.SyncRootPath);
-        if (string.IsNullOrEmpty(relativePath) || relativePath == "/") return;
+        if (string.IsNullOrEmpty(relativePath) || relativePath == "/")
+        {
+            Trace.WriteLine($"FileOpen: skip (root or empty): '{relativePath}'");
+            return;
+        }
 
         var localPath = Path.Combine(ctx.SyncRootPath, relativePath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
-        if (!File.Exists(localPath)) return;
+        if (!File.Exists(localPath))
+        {
+            Trace.WriteLine($"FileOpen: skip (not file or missing): '{localPath}'");
+            return;
+        }
 
-        ctx.OpenFileWriteTimes[relativePath] = File.GetLastWriteTimeUtc(localPath);
+        var writeTime = File.GetLastWriteTimeUtc(localPath);
+        ctx.OpenFileWriteTimes[relativePath] = writeTime;
+        Trace.WriteLine($"FileOpen: {relativePath} (writeTime={writeTime:O})");
     }
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]

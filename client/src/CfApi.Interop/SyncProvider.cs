@@ -35,6 +35,8 @@ public sealed class SyncProvider : IDisposable
         }
 
         _connected = true;
+        System.Diagnostics.Trace.WriteLine(
+            $"SyncProvider connected: '{_context.SyncRootPath}' connectionKey=0x{_connectionKey:X16} ({tableSize} callbacks registered)");
     }
 
     public void Disconnect()
