@@ -1,6 +1,5 @@
 using System.Buffers;
 using System.Diagnostics;
-using Microsoft.Win32.SafeHandles;
 using Cafs.Core.Abstractions;
 using Cafs.Core.Models;
 using CfApi.Interop;
@@ -95,25 +94,25 @@ public sealed class CafsSyncCallbacks : ISyncCallbacks
 
         try
         {
-            // (3) NOT_IN_SYNC マーク。OS が自動 dehydrate しないよう守る。
-            using var handle = OplockFileHandle.Open(localPath, OplockOpenFlags.WriteAccess);
-            handle.SetInSyncState(false);
+            // (3) NOT_IN_SYNC マークだけ行ってオプロックは即時解放する。
+            //     CfOpenFileWithOplock の handle は overlapped 開きかつ CfApi が
+            //     内部で完了ポートに bind しているため、FileStream の同期/非同期
+            //     どちらでも読めない (CS0006: BindHandle 失敗 / 同期非対応)。
+            //     ハンドルを保持し続けると File.OpenRead もシェアバイオレーション。
+            //     → state 変更のたびに開閉する戦略にする。
+            using (var handle = OplockFileHandle.Open(localPath, OplockOpenFlags.WriteAccess))
+            {
+                handle.SetInSyncState(false);
+            }
 
-            // (4) heartbeat 開始 → upload
-            //     File.OpenRead だとシェアバイオレーション (ERROR_SHARING_VIOLATION) になるため、
-            //     OplockFileHandle が保持している Win32 handle から FileStream を作って読む。
-            //     ownsHandle: false で SafeFileHandle を作り、handle 本体の close は OplockFileHandle 側に任せる。
+            // (4) heartbeat 開始 → upload (この時点でファイルはロックされていないので File.OpenRead が通る)
             UploadResult uploadResult;
             using (var heartbeatCts = CancellationTokenSource.CreateLinkedTokenSource(ct))
             {
                 var heartbeat = StartLockHeartbeat(relativePath, heartbeatCts.Token);
                 try
                 {
-                    // CfOpenFileWithOplock は FILE_FLAG_OVERLAPPED で開かないため、
-                    // FileStream(SafeFileHandle, ..., isAsync: false) で同期 I/O として扱う。
-                    // (true にすると ThreadPool.BindHandle が失敗する)
-                    var safeHandle = new SafeFileHandle(handle.Win32Handle, ownsHandle: false);
-                    await using var stream = new FileStream(safeHandle, FileAccess.Read, bufferSize: 4096, isAsync: false);
+                    await using var stream = File.OpenRead(localPath);
                     uploadResult = await _server.UploadFileAsync(relativePath, stream, ct).ConfigureAwait(false);
                 }
                 finally
@@ -123,22 +122,22 @@ public sealed class CafsSyncCallbacks : ISyncCallbacks
                 }
             }
 
-            // (5) placeholder のメタデータをサーバ最新に同期。
-            //     現状 etag は無いので fileIdentity は触らず metadata だけ更新。
-            handle.UpdatePlaceholder(
-                metadata: new FileMetadata(
-                    Creation: File.GetCreationTimeUtc(localPath),
-                    LastAccess: uploadResult.LastModified,
-                    LastWrite: uploadResult.LastModified,
-                    Change: uploadResult.LastModified,
-                    FileAttributes: 0x80, // FILE_ATTRIBUTE_NORMAL
-                    FileSize: uploadResult.Size),
-                fileIdentity: ReadOnlySpan<byte>.Empty,
-                dehydrateRanges: ReadOnlySpan<FileRange>.Empty,
-                flags: UpdateFlags.MarkInSync);
-
-            // (6) IN_SYNC マーク → 通常状態に戻す
-            handle.SetInSyncState(true);
+            // (5) placeholder メタデータ同期 + IN_SYNC マーク
+            using (var handle = OplockFileHandle.Open(localPath, OplockOpenFlags.WriteAccess))
+            {
+                handle.UpdatePlaceholder(
+                    metadata: new FileMetadata(
+                        Creation: File.GetCreationTimeUtc(localPath),
+                        LastAccess: uploadResult.LastModified,
+                        LastWrite: uploadResult.LastModified,
+                        Change: uploadResult.LastModified,
+                        FileAttributes: 0x80, // FILE_ATTRIBUTE_NORMAL
+                        FileSize: uploadResult.Size),
+                    fileIdentity: ReadOnlySpan<byte>.Empty,
+                    dehydrateRanges: ReadOnlySpan<FileRange>.Empty,
+                    flags: UpdateFlags.MarkInSync);
+                handle.SetInSyncState(true);
+            }
 
             Trace.WriteLine($"Uploaded: {relativePath} (size={uploadResult.Size})");
             return true;
