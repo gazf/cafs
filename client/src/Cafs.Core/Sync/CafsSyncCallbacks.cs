@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Diagnostics;
 using Cafs.Core.Abstractions;
+using Cafs.Core.Models;
 using CfApi.Interop;
 
 namespace Cafs.Core.Sync;
@@ -153,7 +154,7 @@ public sealed class CafsSyncCallbacks : ISyncCallbacks
         }
     }
 
-    private async Task<Models.LockInfo?> TryAcquireLockAsync(string relativePath, CancellationToken ct)
+    private async Task<LockInfo?> TryAcquireLockAsync(string relativePath, CancellationToken ct)
     {
         try
         {
