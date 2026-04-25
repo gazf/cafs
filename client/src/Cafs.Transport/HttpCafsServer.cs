@@ -1,7 +1,9 @@
 using System.Net.Http.Headers;
 using System.Text.Json;
+using Cafs.Core.Abstractions;
+using Cafs.Core.Models;
 
-namespace Cafs.Client.Http;
+namespace Cafs.Transport;
 
 public class CafsApiException : Exception
 {
@@ -14,12 +16,12 @@ public class CafsApiException : Exception
     }
 }
 
-public class CafsHttpClient : IDisposable
+public class HttpCafsServer : ICafsServer, IDisposable
 {
     private readonly HttpClient _http;
     private readonly string _baseUrl;
 
-    public CafsHttpClient(string baseUrl, string bearerToken)
+    public HttpCafsServer(string baseUrl, string bearerToken)
     {
         _baseUrl = baseUrl.TrimEnd('/');
         _http = new HttpClient();
@@ -27,22 +29,22 @@ public class CafsHttpClient : IDisposable
             new AuthenticationHeaderValue("Bearer", bearerToken);
     }
 
-    public async Task<List<FileEntry>> ListDirectoryAsync(string path)
+    public async Task<IReadOnlyList<FileNode>> ListDirectoryAsync(string path)
     {
         var url = $"{_baseUrl}/files{NormalizePath(path)}";
         var response = await _http.GetAsync(url);
         await EnsureSuccess(response);
         var json = await response.Content.ReadAsStringAsync();
-        return JsonSerializer.Deserialize<List<FileEntry>>(json) ?? [];
+        return JsonSerializer.Deserialize<List<FileNode>>(json) ?? [];
     }
 
-    public async Task<FileEntry> GetFileInfoAsync(string path)
+    public async Task<FileNode> GetFileInfoAsync(string path)
     {
         var url = $"{_baseUrl}/files{NormalizePath(path)}";
         var response = await _http.GetAsync(url);
         await EnsureSuccess(response);
         var json = await response.Content.ReadAsStringAsync();
-        return JsonSerializer.Deserialize<FileEntry>(json)
+        return JsonSerializer.Deserialize<FileNode>(json)
             ?? throw new CafsApiException("Failed to parse response", 500);
     }
 
@@ -75,6 +77,7 @@ public class CafsHttpClient : IDisposable
     {
         var url = $"{_baseUrl}/files{NormalizePath(path)}";
         var response = await _http.DeleteAsync(url);
+        if ((int)response.StatusCode == 404) return;
         await EnsureSuccess(response);
     }
 

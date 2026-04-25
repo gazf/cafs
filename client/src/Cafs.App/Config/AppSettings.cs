@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace Cafs.Client.Config;
+namespace Cafs.App.Config;
 
 public class AppSettings
 {
@@ -32,7 +32,6 @@ public class AppSettings
             catch { /* use defaults on parse error */ }
         }
 
-        // Default sync root to %USERPROFILE%\CAFS if unset.
         if (string.IsNullOrWhiteSpace(settings.SyncRootPath))
         {
             settings.SyncRootPath = Path.Combine(
@@ -40,7 +39,6 @@ public class AppSettings
                 "CAFS");
         }
 
-        // Command-line overrides.
         for (int i = 0; i < args.Length - 1; i++)
         {
             switch (args[i])

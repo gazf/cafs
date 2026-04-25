@@ -1,35 +1,27 @@
 using System.Diagnostics;
-using Cafs.Client.Http;
+using Cafs.Core.Abstractions;
 
-namespace Cafs.Client.Sync;
+namespace Cafs.Core.Sync;
 
 public class SyncEngine
 {
-    private readonly CafsHttpClient _httpClient;
-    private readonly string _syncRootPath;
+    private readonly ICafsServer _server;
     private System.Threading.Timer? _timer;
 
-    public SyncEngine(CafsHttpClient httpClient, string syncRootPath)
+    public SyncEngine(ICafsServer server)
     {
-        _httpClient = httpClient;
-        _syncRootPath = syncRootPath;
+        _server = server;
     }
 
-    /// <summary>
-    /// Connectivity check only — placeholders are populated on-demand by
-    /// FetchPlaceholders callbacks when the user navigates in Explorer.
-    /// Pre-creating placeholders conflicts with on-demand population.
-    /// </summary>
+    // Connectivity check only — placeholders are populated on-demand via FetchPlaceholders.
+    // Pre-creating placeholders conflicts with on-demand population.
     public async Task FullSyncAsync()
     {
         Trace.WriteLine("FullSync: verifying server connectivity...");
-        await _httpClient.ListDirectoryAsync("/");
+        await _server.ListDirectoryAsync("/");
         Trace.WriteLine("FullSync: ok.");
     }
 
-    /// <summary>
-    /// Start periodic sync at the given interval.
-    /// </summary>
     public void StartPeriodicSync(TimeSpan interval)
     {
         _timer = new System.Threading.Timer(

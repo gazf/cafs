@@ -1,9 +1,9 @@
 using System.Windows.Forms;
-using Cafs.Client.Config;
-using Cafs.Client.Ui;
-using Cafs.Client.Util;
+using Cafs.App.Config;
+using Cafs.App.Ui;
+using Cafs.App.Util;
 
-namespace Cafs.Client;
+namespace Cafs.App;
 
 internal static class Program
 {

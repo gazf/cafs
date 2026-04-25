@@ -1,8 +1,7 @@
-using System.ComponentModel;
 using System.Windows.Forms;
-using Cafs.Client.Config;
+using Cafs.App.Config;
 
-namespace Cafs.Client.Ui;
+namespace Cafs.App.Ui;
 
 public class SettingsForm : Form
 {

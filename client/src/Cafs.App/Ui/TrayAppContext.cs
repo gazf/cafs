@@ -1,11 +1,11 @@
 using System.Diagnostics;
 using System.Windows.Forms;
-using Cafs.Client.Config;
-using Cafs.Client.Http;
-using Cafs.Client.Sync;
+using Cafs.App.Config;
+using Cafs.Core.Sync;
+using Cafs.Transport;
 using CfApi.Interop;
 
-namespace Cafs.Client.Ui;
+namespace Cafs.App.Ui;
 
 public sealed class TrayAppContext : ApplicationContext
 {
@@ -16,7 +16,7 @@ public sealed class TrayAppContext : ApplicationContext
     private const string ProviderVersion = "1.0";
     private static readonly Guid ProviderId = Guid.Parse("B5F2A9C1-4E7D-4A3B-8F6C-1D2E3F4A5B6C");
 
-    private CafsHttpClient? _httpClient;
+    private HttpCafsServer? _server;
     private SyncProvider? _syncProvider;
     private SyncEngine? _syncEngine;
 
@@ -71,17 +71,17 @@ public sealed class TrayAppContext : ApplicationContext
         try
         {
             SetStatus("Connecting...");
-            _httpClient = new CafsHttpClient(_settings.ServerUrl, _settings.BearerToken);
+            _server = new HttpCafsServer(_settings.ServerUrl, _settings.BearerToken);
             Directory.CreateDirectory(_settings.SyncRootPath);
 
             SyncRootRegistrar.Register(new SyncRootOptions(
                 _settings.SyncRootPath, ProviderName, ProviderVersion, ProviderId));
 
-            var callbacks = new CafsSyncCallbacks(_httpClient);
+            var callbacks = new CafsSyncCallbacks(_server);
             _syncProvider = new SyncProvider(_settings.SyncRootPath, callbacks);
             _syncProvider.Connect();
 
-            _syncEngine = new SyncEngine(_httpClient, _settings.SyncRootPath);
+            _syncEngine = new SyncEngine(_server);
             SetStatus("Syncing...");
             await _syncEngine.FullSyncAsync();
             _syncEngine.StartPeriodicSync(TimeSpan.FromSeconds(_settings.SyncIntervalSeconds));
@@ -174,7 +174,7 @@ public sealed class TrayAppContext : ApplicationContext
             Directory.CreateDirectory(path);
             SyncRootRegistrar.Register(new SyncRootOptions(path, ProviderName, ProviderVersion, ProviderId));
 
-            var callbacks = new CafsSyncCallbacks(_httpClient!);
+            var callbacks = new CafsSyncCallbacks(_server!);
             _syncProvider = new SyncProvider(path, callbacks);
             _syncProvider.Connect();
 
@@ -203,7 +203,7 @@ public sealed class TrayAppContext : ApplicationContext
             _syncEngine?.StopPeriodicSync();
             _syncProvider?.Disconnect();
             _syncProvider?.Dispose();
-            _httpClient?.Dispose();
+            _server?.Dispose();
         }
         catch { /* ignore shutdown errors */ }
 

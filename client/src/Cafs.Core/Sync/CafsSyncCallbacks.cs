@@ -1,24 +1,24 @@
 using System.Buffers;
 using System.Diagnostics;
-using Cafs.Client.Http;
+using Cafs.Core.Abstractions;
 using CfApi.Interop;
 
-namespace Cafs.Client.Sync;
+namespace Cafs.Core.Sync;
 
 public sealed class CafsSyncCallbacks : ISyncCallbacks
 {
     private const int HydrateChunkSize = 65536;
 
-    private readonly CafsHttpClient _httpClient;
+    private readonly ICafsServer _server;
 
-    public CafsSyncCallbacks(CafsHttpClient httpClient)
+    public CafsSyncCallbacks(ICafsServer server)
     {
-        _httpClient = httpClient;
+        _server = server;
     }
 
     public async Task<IReadOnlyList<PlaceholderInfo>> ListAsync(string relativePath, CancellationToken ct)
     {
-        var entries = await _httpClient.ListDirectoryAsync(relativePath).ConfigureAwait(false);
+        var entries = await _server.ListDirectoryAsync(relativePath).ConfigureAwait(false);
         var result = new PlaceholderInfo[entries.Count];
         for (int i = 0; i < entries.Count; i++)
         {
@@ -35,7 +35,7 @@ public sealed class CafsSyncCallbacks : ISyncCallbacks
     public async Task HydrateAsync(
         string relativePath, long offset, long length, DataTransfer transfer, CancellationToken ct)
     {
-        using var stream = await _httpClient.DownloadFileAsync(relativePath, offset, length).ConfigureAwait(false);
+        using var stream = await _server.DownloadFileAsync(relativePath, offset, length).ConfigureAwait(false);
 
         var buffer = ArrayPool<byte>.Shared.Rent(HydrateChunkSize);
         try
@@ -60,12 +60,7 @@ public sealed class CafsSyncCallbacks : ISyncCallbacks
     {
         try
         {
-            await _httpClient.DeleteFileAsync(relativePath).ConfigureAwait(false);
-            return 0;
-        }
-        catch (CafsApiException ex) when (ex.StatusCode == 404)
-        {
-            // サーバが知らないファイル — stale な local placeholder。ローカル削除は通す。
+            await _server.DeleteFileAsync(relativePath).ConfigureAwait(false);
             return 0;
         }
         catch (Exception ex)

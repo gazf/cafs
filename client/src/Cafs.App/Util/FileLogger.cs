@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.Text;
 
-namespace Cafs.Client.Util;
+namespace Cafs.App.Util;
 
 /// <summary>
 /// Redirects Debug.WriteLine, Trace.WriteLine, Console.WriteLine, and Console.Error.WriteLine
