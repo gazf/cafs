@@ -42,6 +42,10 @@ public class SyncEngine
             Trace.WriteLine($"FullSync: creating {infos.Count} placeholder(s) in '{localDir}'");
             _syncProvider.CreatePlaceholders(localDir, infos);
 
+            // CreatePlaceholders だけでは Explorer のビューが再列挙されない。
+            // ディレクトリ単位で SHCNE_UPDATEDIR を打って、開いているビューに反映させる。
+            Shell.NotifyUpdateDir(localDir);
+
             foreach (var child in children.Where(c => c.IsDirectory))
                 queue.Enqueue(child.Path);
         }
