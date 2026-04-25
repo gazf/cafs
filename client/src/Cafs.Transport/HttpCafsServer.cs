@@ -31,7 +31,7 @@ public class HttpCafsServer : ICafsServer, IDisposable
     {
         var url = $"{_baseUrl}/files{NormalizePath(path)}";
         var response = await _http.GetAsync(url, ct);
-        await EnsureSuccess(response);
+        await EnsureSuccess(response, ct);
         var json = await response.Content.ReadAsStringAsync(ct);
         return JsonSerializer.Deserialize<List<FileNode>>(json) ?? [];
     }
@@ -40,7 +40,7 @@ public class HttpCafsServer : ICafsServer, IDisposable
     {
         var url = $"{_baseUrl}/files{NormalizePath(path)}";
         var response = await _http.GetAsync(url, ct);
-        await EnsureSuccess(response);
+        await EnsureSuccess(response, ct);
         var json = await response.Content.ReadAsStringAsync(ct);
         return JsonSerializer.Deserialize<FileNode>(json)
             ?? throw new CafsApiException("Failed to parse response", 500);
@@ -58,7 +58,7 @@ public class HttpCafsServer : ICafsServer, IDisposable
         }
 
         var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-        await EnsureSuccess(response);
+        await EnsureSuccess(response, ct);
         return await response.Content.ReadAsStreamAsync(ct);
     }
 
@@ -68,7 +68,7 @@ public class HttpCafsServer : ICafsServer, IDisposable
         using var streamContent = new StreamContent(content);
         streamContent.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
         var response = await _http.PutAsync(url, streamContent, ct);
-        await EnsureSuccess(response);
+        await EnsureSuccess(response, ct);
     }
 
     public async Task DeleteFileAsync(string path, CancellationToken ct = default)
@@ -76,14 +76,14 @@ public class HttpCafsServer : ICafsServer, IDisposable
         var url = $"{_baseUrl}/files{NormalizePath(path)}";
         var response = await _http.DeleteAsync(url, ct);
         if ((int)response.StatusCode == 404) return;
-        await EnsureSuccess(response);
+        await EnsureSuccess(response, ct);
     }
 
     public async Task<LockInfo?> AcquireLockAsync(string path, CancellationToken ct = default)
     {
         var url = $"{_baseUrl}/locks{NormalizePath(path)}";
         var response = await _http.PostAsync(url, null, ct);
-        await EnsureSuccess(response);
+        await EnsureSuccess(response, ct);
         var json = await response.Content.ReadAsStringAsync(ct);
         return JsonSerializer.Deserialize<LockInfo>(json);
     }
@@ -92,7 +92,7 @@ public class HttpCafsServer : ICafsServer, IDisposable
     {
         var url = $"{_baseUrl}/locks{NormalizePath(path)}";
         var response = await _http.DeleteAsync(url, ct);
-        await EnsureSuccess(response);
+        await EnsureSuccess(response, ct);
     }
 
     private static string NormalizePath(string path)
@@ -103,11 +103,11 @@ public class HttpCafsServer : ICafsServer, IDisposable
         return path;
     }
 
-    private static async Task EnsureSuccess(HttpResponseMessage response)
+    private static async Task EnsureSuccess(HttpResponseMessage response, CancellationToken ct = default)
     {
         if (!response.IsSuccessStatusCode)
         {
-            var body = await response.Content.ReadAsStringAsync();
+            var body = await response.Content.ReadAsStringAsync(ct);
             string message;
             try
             {
