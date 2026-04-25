@@ -85,15 +85,17 @@ public sealed class TrayAppContext : ApplicationContext
 
             var callbacks = new CafsSyncCallbacks(_server);
             _syncProvider = new SyncProvider(_settings.SyncRootPath, callbacks);
-            _syncProvider.Connect();
 
+            // ALWAYS_FULL: create all placeholders before connecting,
+            // so Explorer never sees an empty directory.
             _syncEngine = new SyncEngine(_server, _syncProvider, _settings.SyncRootPath);
             SetStatus("Syncing...");
             await _syncEngine.FullSyncAsync();
 
-            _eventStream = await HttpEventStream.ConnectAsync(_settings.ServerUrl, _settings.BearerToken);
+            _syncProvider.Connect();
+
             _eventLoopCts = new CancellationTokenSource();
-            _ = _syncEngine.RunEventLoopAsync(_eventStream, _eventLoopCts.Token);
+            _ = RunEventLoopWithReconnectAsync(_eventLoopCts.Token);
 
             SetStatus($"Connected: {_settings.ServerUrl}");
         }
@@ -102,6 +104,34 @@ public sealed class TrayAppContext : ApplicationContext
             SetStatus("Error");
             ShowBalloon("CAFS error", ex.Message, ToolTipIcon.Error);
         }
+    }
+
+    private async Task RunEventLoopWithReconnectAsync(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                var stream = await HttpEventStream.ConnectAsync(_settings.ServerUrl, _settings.BearerToken, ct);
+                _eventStream = stream;
+                await using (stream)
+                {
+                    await _syncEngine!.RunEventLoopAsync(stream, ct);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                _eventStream = null;
+                Trace.WriteLine($"EventLoop disconnected: {ex.Message}, reconnecting in 5s...");
+                try { await Task.Delay(5000, ct); }
+                catch (OperationCanceledException) { break; }
+            }
+        }
+        _eventStream = null;
     }
 
     private void SetStatus(string text)
@@ -195,9 +225,8 @@ public sealed class TrayAppContext : ApplicationContext
             _syncEngine = new SyncEngine(_server!, _syncProvider, path);
             await _syncEngine.FullSyncAsync();
 
-            _eventStream = await HttpEventStream.ConnectAsync(_settings.ServerUrl, _settings.BearerToken);
             _eventLoopCts = new CancellationTokenSource();
-            _ = _syncEngine.RunEventLoopAsync(_eventStream, _eventLoopCts.Token);
+            _ = RunEventLoopWithReconnectAsync(_eventLoopCts.Token);
 
             SetStatus($"Connected: {_settings.ServerUrl}");
             ShowBalloon("Reset complete", "Local cache cleared and re-synced.");

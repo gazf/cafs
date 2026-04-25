@@ -7,7 +7,7 @@ namespace CfApi.Interop.Internal;
 
 internal static class UnmanagedEntryPoints
 {
-    public static int RegistrationTableSize => 4;
+    public static int RegistrationTableSize => 5;
 
     public static unsafe void BuildRegistrationTable(Span<CF_CALLBACK_REGISTRATION> table)
     {
@@ -23,10 +23,15 @@ internal static class UnmanagedEntryPoints
         };
         table[2] = new CF_CALLBACK_REGISTRATION
         {
+            Type = CF_CALLBACK_TYPE.CF_CALLBACK_TYPE_FETCH_PLACEHOLDERS,
+            Callback = &OnFetchPlaceholders,
+        };
+        table[3] = new CF_CALLBACK_REGISTRATION
+        {
             Type = CF_CALLBACK_TYPE.CF_CALLBACK_TYPE_NOTIFY_DELETE,
             Callback = &OnNotifyDelete,
         };
-        table[3] = new CF_CALLBACK_REGISTRATION
+        table[4] = new CF_CALLBACK_REGISTRATION
         {
             Type = CF_CALLBACK_TYPE.CF_CALLBACK_TYPE_NONE,
             Callback = null,
@@ -92,6 +97,17 @@ internal static class UnmanagedEntryPoints
         {
             Trace.WriteLine($"CancelFetchData error: {ex.Message}");
         }
+    }
+
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
+    private static unsafe void OnFetchPlaceholders(CF_CALLBACK_INFO* info, CF_CALLBACK_PARAMETERS* parameters)
+    {
+        // ALWAYS_FULL: placeholders are pre-populated; always respond with empty to unblock Explorer.
+        CfOperations.TransferPlaceholdersEmpty(
+            info->ConnectionKey,
+            info->TransferKey,
+            info->RequestKey,
+            (nint)info->CorrelationVector);
     }
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
