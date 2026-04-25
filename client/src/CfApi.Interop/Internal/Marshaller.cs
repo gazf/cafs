@@ -10,7 +10,7 @@ internal static class Marshaller
     private const int StackallocBufferSize = StackallocInputLimit + 8;
 
     /// <summary>
-    /// NormalizedPath ("C:\SyncRoot\sub\file") から syncRoot を剥いで "/sub/file" 形式にする。
+    /// NormalizedPath ("\SyncRoot\sub\file" — volume-relative) から syncRoot を剥いで "/sub/file" 形式にする。
     /// prefix 除去と '\\' → '/' 変換を 1 パスで実施し、終段で string を 1 回だけ生成する。
     /// </summary>
     public static unsafe string GetRelativePath(CF_CALLBACK_INFO* info, string syncRootPath)
@@ -62,8 +62,20 @@ internal static class Marshaller
 
     private static ReadOnlySpan<char> StripPrefix(ReadOnlySpan<char> source, string syncRootPath)
     {
+        // フルパス形式 ("C:\CAFS\sub") → そのまま一致
         if (source.StartsWith(syncRootPath, StringComparison.OrdinalIgnoreCase))
             return source[syncRootPath.Length..];
+
+        // NormalizedPath はボリューム相対形式 ("\CAFS\sub") のため、
+        // syncRootPath のドライブ文字部分 ("C:") を除いた部分で再試行する。
+        int driveEnd = syncRootPath.IndexOf(':');
+        if (driveEnd >= 0)
+        {
+            var syncRelative = syncRootPath.AsSpan(driveEnd + 1); // e.g. "\CAFS"
+            if (source.StartsWith(syncRelative, StringComparison.OrdinalIgnoreCase))
+                return source[syncRelative.Length..];
+        }
+
         return source;
     }
 
