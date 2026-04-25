@@ -87,19 +87,24 @@ internal static class UnmanagedEntryPoints
         ulong connectionKey, long transferKey, long requestKey,
         long requiredOffset, long requiredLength, CancellationTokenSource cts)
     {
+        var transfer = new DataTransfer(connectionKey, transferKey, requestKey);
+        int completionStatus = 0;
         try
         {
             Trace.WriteLine($"FetchData: {relativePath} offset={requiredOffset} length={requiredLength}");
-            var transfer = new DataTransfer(connectionKey, transferKey, requestKey);
             await ctx.Callbacks.HydrateAsync(relativePath, requiredOffset, requiredLength, transfer, cts.Token)
                 .ConfigureAwait(false);
+            Trace.WriteLine($"FetchData: {relativePath} complete");
         }
         catch (Exception ex)
         {
             Trace.WriteLine($"FetchData error: {ex.Message}");
+            completionStatus = unchecked((int)0xC0000001); // STATUS_UNSUCCESSFUL
         }
         finally
         {
+            // Signal CfApi that transfer is complete (required even on success).
+            transfer.Complete(completionStatus);
             ctx.ActiveFetches.TryRemove(transferKey, out _);
             cts.Dispose();
         }

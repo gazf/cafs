@@ -19,4 +19,10 @@ public readonly struct DataTransfer
     {
         CfOperations.TransferData(_connectionKey, _transferKey, _requestKey, chunk, offset);
     }
+
+    // CfApi requires an explicit zero-length call to signal end of transfer.
+    internal void Complete(int ntstatus = 0)
+    {
+        CfOperations.TransferData(_connectionKey, _transferKey, _requestKey, ReadOnlySpan<byte>.Empty, 0, ntstatus);
+    }
 }

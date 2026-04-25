@@ -62,8 +62,7 @@ internal ref struct PlaceholderBatch
                     },
                 },
                 FileIdentityLength = (uint)bufBytes,
-                Flags = CF_PLACEHOLDER_CREATE_FLAGS.CF_PLACEHOLDER_CREATE_FLAG_MARK_IN_SYNC
-                      | CF_PLACEHOLDER_CREATE_FLAGS.CF_PLACEHOLDER_CREATE_FLAG_SUPERSEDE,
+                Flags = CF_PLACEHOLDER_CREATE_FLAGS.CF_PLACEHOLDER_CREATE_FLAG_MARK_IN_SYNC,
                 Result = 0,
                 CreateUsn = 0,
             };
