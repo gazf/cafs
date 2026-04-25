@@ -71,7 +71,7 @@ internal static class UnmanagedEntryPoints
         long requiredOffset, long requiredLength, CancellationTokenSource cts)
     {
         var transfer = new DataTransfer(connectionKey, transferKey, requestKey);
-        int completionStatus = 0;
+        bool failed = false;
         try
         {
             Trace.WriteLine($"FetchData: {relativePath} offset={requiredOffset} length={requiredLength}");
@@ -82,12 +82,15 @@ internal static class UnmanagedEntryPoints
         catch (Exception ex)
         {
             Trace.WriteLine($"FetchData error: {ex.Message}");
-            completionStatus = unchecked((int)0xC0000001); // STATUS_UNSUCCESSFUL
+            failed = true;
         }
         finally
         {
-            // Signal CfApi that transfer is complete (required even on success).
-            transfer.Complete(completionStatus);
+            // 成功時は CfExecute を追加で呼ばない: 必要な範囲を transfer.Write で
+            // 配信し終えれば CFS は転送完了と認識する。失敗時のみ NTSTATUS 付きで
+            // 完了通知 (これがないと OS 側で永遠に待ち続ける) を送る。
+            if (failed)
+                transfer.Fail(unchecked((int)0xC0000001)); // STATUS_UNSUCCESSFUL
             ctx.ActiveFetches.TryRemove(transferKey, out _);
             cts.Dispose();
         }

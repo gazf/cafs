@@ -109,8 +109,11 @@ public sealed class CafsSyncCallbacks : ISyncCallbacks
                 var heartbeat = StartLockHeartbeat(relativePath, heartbeatCts.Token);
                 try
                 {
+                    // CfOpenFileWithOplock は FILE_FLAG_OVERLAPPED で開かないため、
+                    // FileStream(SafeFileHandle, ..., isAsync: false) で同期 I/O として扱う。
+                    // (true にすると ThreadPool.BindHandle が失敗する)
                     var safeHandle = new SafeFileHandle(handle.Win32Handle, ownsHandle: false);
-                    await using var stream = new FileStream(safeHandle, FileAccess.Read);
+                    await using var stream = new FileStream(safeHandle, FileAccess.Read, bufferSize: 4096, isAsync: false);
                     uploadResult = await _server.UploadFileAsync(relativePath, stream, ct).ConfigureAwait(false);
                 }
                 finally
