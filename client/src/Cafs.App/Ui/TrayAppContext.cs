@@ -20,6 +20,8 @@ public sealed class TrayAppContext : ApplicationContext
     private HttpCafsServer? _server;
     private SyncProvider? _syncProvider;
     private SyncEngine? _syncEngine;
+    private HttpEventStream? _eventStream;
+    private CancellationTokenSource? _eventLoopCts;
 
     private readonly ToolStripMenuItem _statusItem;
     private readonly ToolStripMenuItem _openItem;
@@ -85,10 +87,13 @@ public sealed class TrayAppContext : ApplicationContext
             _syncProvider = new SyncProvider(_settings.SyncRootPath, callbacks);
             _syncProvider.Connect();
 
-            _syncEngine = new SyncEngine(_server);
+            _syncEngine = new SyncEngine(_server, _syncProvider, _settings.SyncRootPath);
             SetStatus("Syncing...");
             await _syncEngine.FullSyncAsync();
-            _syncEngine.StartPeriodicSync(TimeSpan.FromSeconds(_settings.SyncIntervalSeconds));
+
+            _eventStream = await HttpEventStream.ConnectAsync(_settings.ServerUrl, _settings.BearerToken);
+            _eventLoopCts = new CancellationTokenSource();
+            _ = _syncEngine.RunEventLoopAsync(_eventStream, _eventLoopCts.Token);
 
             SetStatus($"Connected: {_settings.ServerUrl}");
         }
@@ -128,7 +133,7 @@ public sealed class TrayAppContext : ApplicationContext
         SetStatus("Syncing...");
         try
         {
-            await _syncEngine.FullSyncAsync();
+            await _syncEngine.FullSyncAsync(CancellationToken.None);
             SetStatus($"Connected: {_settings.ServerUrl}");
         }
         catch (Exception ex)
@@ -161,7 +166,12 @@ public sealed class TrayAppContext : ApplicationContext
         SetStatus("Resetting...");
         try
         {
-            _syncEngine?.StopPeriodicSync();
+            _eventLoopCts?.Cancel();
+            _eventLoopCts?.Dispose();
+            _eventLoopCts = null;
+            _ = _eventStream?.DisposeAsync().AsTask();
+            _eventStream = null;
+
             _syncProvider?.Disconnect();
             _syncProvider?.Dispose();
             _syncProvider = null;
@@ -182,8 +192,13 @@ public sealed class TrayAppContext : ApplicationContext
             _syncProvider = new SyncProvider(path, callbacks);
             _syncProvider.Connect();
 
-            await _syncEngine!.FullSyncAsync();
-            _syncEngine.StartPeriodicSync(TimeSpan.FromSeconds(_settings.SyncIntervalSeconds));
+            _syncEngine = new SyncEngine(_server!, _syncProvider, path);
+            await _syncEngine.FullSyncAsync();
+
+            _eventStream = await HttpEventStream.ConnectAsync(_settings.ServerUrl, _settings.BearerToken);
+            _eventLoopCts = new CancellationTokenSource();
+            _ = _syncEngine.RunEventLoopAsync(_eventStream, _eventLoopCts.Token);
+
             SetStatus($"Connected: {_settings.ServerUrl}");
             ShowBalloon("Reset complete", "Local cache cleared and re-synced.");
         }
@@ -204,7 +219,11 @@ public sealed class TrayAppContext : ApplicationContext
     {
         try
         {
-            _syncEngine?.StopPeriodicSync();
+            _eventLoopCts?.Cancel();
+            _eventLoopCts?.Dispose();
+            _eventLoopCts = null;
+            _ = _eventStream?.DisposeAsync().AsTask();
+            _eventStream = null;
             _syncProvider?.Disconnect();
             _syncProvider?.Dispose();
             _server?.Dispose();

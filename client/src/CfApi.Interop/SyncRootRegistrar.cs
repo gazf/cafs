@@ -37,7 +37,7 @@ public static class SyncRootRegistrar
                 },
                 Population = new CF_POPULATION_POLICY
                 {
-                    Primary = CF_POPULATION_POLICY_PRIMARY.CF_POPULATION_POLICY_FULL,
+                    Primary = CF_POPULATION_POLICY_PRIMARY.CF_POPULATION_POLICY_ALWAYS_FULL,
                     Modifier = CF_POPULATION_POLICY_MODIFIER.CF_POPULATION_POLICY_MODIFIER_NONE,
                 },
                 InSync = CF_INSYNC_POLICY.CF_INSYNC_POLICY_TRACK_ALL,

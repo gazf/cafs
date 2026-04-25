@@ -3,6 +3,7 @@ import { authMiddleware } from "./middleware/auth.ts";
 import { errorHandler } from "./middleware/errors.ts";
 import { registerFileRoutes } from "./routes/files.ts";
 import { registerLockRoutes } from "./routes/locks.ts";
+import { registerEventRoutes } from "./routes/events.ts";
 import { auditLogger } from "./middleware/logger.ts";
 
 type Env = {
@@ -26,5 +27,6 @@ app.use("*", auditLogger);
 // Routes
 registerFileRoutes(app);
 registerLockRoutes(app);
+registerEventRoutes(app);
 
 export default app;

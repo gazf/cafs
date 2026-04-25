@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import {
   listDirectory,
   getFileInfo,
+  getTree,
   readFile,
   writeFile,
   deleteFile,
@@ -18,6 +19,19 @@ type Env = {
 };
 
 export function registerFileRoutes(app: Hono<Env>) {
+  // GET /tree — recursive full tree listing
+  app.get("/tree", async (c) => {
+    try {
+      const tree = await getTree();
+      return c.json(tree);
+    } catch (e) {
+      if (e instanceof FileServiceError) {
+        return c.json({ message: e.message }, e.statusCode as 400);
+      }
+      throw e;
+    }
+  });
+
   // GET /files/*path — list directory or get file info
   app.get("/files/*", async (c) => {
     const wildcard = c.req.path.replace(/^\/files\/?/, "");
