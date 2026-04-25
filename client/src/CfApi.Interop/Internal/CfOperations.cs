@@ -159,9 +159,13 @@ internal static class CfOperations
                         pPlaceholders,
                         (uint)batch.Count,
                         CF_CREATE_FLAGS.CF_CREATE_FLAG_NONE,
-                        out _);
+                        out uint processed);
                     if (CldApi.Failed(hr))
-                        Trace.WriteLine($"CfCreatePlaceholders failed at '{localDirectoryPath}': 0x{hr:X8}");
+                    {
+                        // 0x800700B7 = ERROR_ALREADY_EXISTS: placeholders from a previous run still exist. Not an error.
+                        if ((uint)hr != 0x800700B7u)
+                            Trace.WriteLine($"CfCreatePlaceholders failed at '{localDirectoryPath}': 0x{hr:X8}");
+                    }
                 }
             }
         }
