@@ -6,6 +6,7 @@ import {
   readFile,
   writeFile,
   deleteFile,
+  statFile,
   FileServiceError,
 } from "../services/file.service.ts";
 import { checkPermission } from "../services/auth.service.ts";
@@ -152,7 +153,15 @@ export function registerFileRoutes(app: Hono<Env>) {
         return c.json({ message: "Request body required" }, 400);
       }
       await writeFile(filePath, body);
-      return c.json({ message: "OK" }, 200);
+      // Return up-to-date metadata so the client can refresh its placeholder.
+      const stat = await statFile(filePath);
+      return c.json(
+        {
+          size: stat.size,
+          lastModified: stat.lastModified,
+        },
+        200
+      );
     } catch (e) {
       if (e instanceof FileServiceError) {
         return c.json({ message: e.message }, e.statusCode as 400);

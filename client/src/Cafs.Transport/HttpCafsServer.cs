@@ -71,13 +71,16 @@ public class HttpCafsServer : ICafsServer, IDisposable
         return await response.Content.ReadAsStreamAsync(ct);
     }
 
-    public async Task UploadFileAsync(string path, Stream content, CancellationToken ct = default)
+    public async Task<UploadResult> UploadFileAsync(string path, Stream content, CancellationToken ct = default)
     {
         var url = $"{_baseUrl}/content{NormalizePath(path)}";
         using var streamContent = new StreamContent(content);
         streamContent.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
         var response = await _http.PutAsync(url, streamContent, ct);
         await EnsureSuccess(response, ct);
+        var json = await response.Content.ReadAsStringAsync(ct);
+        return JsonSerializer.Deserialize<UploadResult>(json)
+            ?? throw new CafsApiException("Failed to parse upload response", 500);
     }
 
     public async Task DeleteFileAsync(string path, CancellationToken ct = default)
@@ -92,6 +95,8 @@ public class HttpCafsServer : ICafsServer, IDisposable
     {
         var url = $"{_baseUrl}/locks{NormalizePath(path)}";
         var response = await _http.PostAsync(url, null, ct);
+        // 他ユーザーが保持中は HTTP 409 → 例外ではなく null で返す (呼び出し側でハンドル)
+        if ((int)response.StatusCode == 409) return null;
         await EnsureSuccess(response, ct);
         var json = await response.Content.ReadAsStringAsync(ct);
         return JsonSerializer.Deserialize<LockInfo>(json);

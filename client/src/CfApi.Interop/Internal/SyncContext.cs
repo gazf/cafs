@@ -15,6 +15,11 @@ internal sealed class SyncContext : IDisposable
     public ConcurrentDictionary<long, CancellationTokenSource> ActiveFetches { get; } = new();
     public ConcurrentDictionary<string, DateTime> OpenFileWriteTimes { get; } = new();
 
+    /// <summary>
+    /// Provider 切断時にキャンセルされる。各 dispatch 関数は派生 CTS と link して呼び出し側に渡す。
+    /// </summary>
+    public CancellationTokenSource ShutdownCts { get; } = new();
+
     private GCHandle _handle;
 
     public SyncContext(ISyncCallbacks callbacks, string syncRootPath)
@@ -31,6 +36,9 @@ internal sealed class SyncContext : IDisposable
 
     public void Dispose()
     {
+        // Shutdown 通知 → 進行中の async 処理がキャンセル経路で抜ける。
+        try { ShutdownCts.Cancel(); } catch { }
+        ShutdownCts.Dispose();
         if (_handle.IsAllocated) _handle.Free();
     }
 }

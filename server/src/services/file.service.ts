@@ -72,6 +72,20 @@ export async function listDirectory(
   });
 }
 
+export interface FileStat {
+  size: number;
+  lastModified: string;
+}
+
+export async function statFile(relativePath: string): Promise<FileStat> {
+  const fullPath = resolveAndValidate(relativePath);
+  const stat = await Deno.stat(fullPath);
+  return {
+    size: stat.size,
+    lastModified: (stat.mtime ?? new Date()).toISOString(),
+  };
+}
+
 export async function getFileInfo(
   relativePath: string
 ): Promise<FileEntry> {

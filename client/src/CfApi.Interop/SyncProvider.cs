@@ -40,6 +40,8 @@ public sealed class SyncProvider : IDisposable
     public void Disconnect()
     {
         if (!_connected) return;
+        // 進行中の async dispatch にキャンセルを通知。
+        try { _context.ShutdownCts.Cancel(); } catch { }
         CldApi.CfDisconnectSyncRoot(_connectionKey);
         _connected = false;
     }

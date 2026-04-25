@@ -59,7 +59,8 @@ internal static class UnmanagedEntryPoints
         var requiredOffset = parameters->Union.FetchData.RequiredFileOffset;
         var requiredLength = parameters->Union.FetchData.RequiredLength;
 
-        var cts = new CancellationTokenSource();
+        // shutdown と CancelFetchData の両方でキャンセルできるよう linked CTS。
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(ctx.ShutdownCts.Token);
         ctx.ActiveFetches[transferKey] = cts;
         _ = DispatchFetchDataAsync(ctx, relativePath, connectionKey, transferKey, requestKey, requiredOffset, requiredLength, cts);
     }
@@ -123,6 +124,8 @@ internal static class UnmanagedEntryPoints
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
     private static unsafe void OnOpenCompletion(CF_CALLBACK_INFO* info, CF_CALLBACK_PARAMETERS* parameters)
     {
+        // open 時点では何も dispatch しない。close 時の変更検知用に LastWriteTime のスナップショットだけ取る。
+        // (ロック取得は close 時に modified=true の場合のみ行う方針 — issue #12)
         var ctx = SyncContext.FromPointer(info->CallbackContext);
         var relativePath = Marshaller.GetRelativePath(info, ctx.SyncRootPath);
         if (string.IsNullOrEmpty(relativePath) || relativePath == "/") return;
@@ -131,20 +134,6 @@ internal static class UnmanagedEntryPoints
         if (!File.Exists(localPath)) return;
 
         ctx.OpenFileWriteTimes[relativePath] = File.GetLastWriteTimeUtc(localPath);
-        _ = DispatchOpenAsync(ctx, relativePath);
-    }
-
-    private static async Task DispatchOpenAsync(SyncContext ctx, string relativePath)
-    {
-        try
-        {
-            Trace.WriteLine($"FileOpen: {relativePath}");
-            await ctx.Callbacks.OnFileOpenAsync(relativePath).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            Trace.WriteLine($"FileOpen error: {ex.Message}");
-        }
     }
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
@@ -174,17 +163,26 @@ internal static class UnmanagedEntryPoints
     private static async Task DispatchCloseAsync(
         SyncContext ctx, string relativePath, string localPath, bool isDeleted, bool isModified)
     {
+        Trace.WriteLine($"FileClose: {relativePath} modified={isModified} deleted={isDeleted}");
+
+        // dehydrate するか否かは callback の戻り値で決定:
+        //   true  → アップロード成功 or データを別所に退避済み → dehydrate OK
+        //   false → アップロード失敗 → local データを保持 (再送機会を残す)
+        // 例外時は false 扱い (= dehydrate しない)。
+        bool safeToDehydrate = false;
         try
         {
-            Trace.WriteLine($"FileClose: {relativePath} modified={isModified} deleted={isDeleted}");
-            await ctx.Callbacks.OnFileCloseAsync(relativePath, isDeleted, isModified).ConfigureAwait(false);
-            if (!isDeleted && File.Exists(localPath))
-                CfOperations.DehydratePlaceholder(localPath);
+            safeToDehydrate = await ctx.Callbacks
+                .OnFileCloseAsync(relativePath, isDeleted, isModified, ctx.ShutdownCts.Token)
+                .ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             Trace.WriteLine($"FileClose error: {ex.Message}");
         }
+
+        if (safeToDehydrate && !isDeleted && File.Exists(localPath))
+            CfOperations.DehydratePlaceholder(localPath);
     }
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
@@ -216,7 +214,7 @@ internal static class UnmanagedEntryPoints
         int status;
         try
         {
-            status = await ctx.Callbacks.OnDeleteAsync(relativePath).ConfigureAwait(false);
+            status = await ctx.Callbacks.OnDeleteAsync(relativePath, ctx.ShutdownCts.Token).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
