@@ -175,6 +175,30 @@ internal static class CfOperations
         }
     }
 
+    public static void DehydratePlaceholder(string localPath)
+    {
+        var length = new FileInfo(localPath).Length;
+        if (length == 0) return;
+
+        var hr = CldApi.CfOpenFileWithOplock(localPath, CF_OPEN_FILE_FLAGS.CF_OPEN_FILE_FLAG_WRITE_ACCESS, out var handle);
+        if (CldApi.Failed(hr))
+        {
+            Trace.WriteLine($"DehydratePlaceholder: CfOpenFileWithOplock failed 0x{hr:X8} at '{localPath}'");
+            return;
+        }
+        try
+        {
+            var win32Handle = CldApi.CfGetWin32HandleFromProtectedHandle(handle);
+            hr = CldApi.CfDehydratePlaceholder(win32Handle, 0, length, CF_DEHYDRATE_FLAGS.CF_DEHYDRATE_FLAG_NONE, IntPtr.Zero);
+            if (CldApi.Failed(hr))
+                Trace.WriteLine($"CfDehydratePlaceholder failed 0x{hr:X8} at '{localPath}'");
+        }
+        finally
+        {
+            CldApi.CfCloseHandle(handle);
+        }
+    }
+
     public static int AckDelete(
         ulong connectionKey,
         long transferKey,

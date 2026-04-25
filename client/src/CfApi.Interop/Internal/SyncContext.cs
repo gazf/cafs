@@ -13,6 +13,7 @@ internal sealed class SyncContext : IDisposable
     public ISyncCallbacks Callbacks { get; }
     public string SyncRootPath { get; }
     public ConcurrentDictionary<long, CancellationTokenSource> ActiveFetches { get; } = new();
+    public ConcurrentDictionary<string, DateTime> OpenFileWriteTimes { get; } = new();
 
     private GCHandle _handle;
 

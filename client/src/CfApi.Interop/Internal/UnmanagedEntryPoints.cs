@@ -7,7 +7,7 @@ namespace CfApi.Interop.Internal;
 
 internal static class UnmanagedEntryPoints
 {
-    public static int RegistrationTableSize => 5;
+    public static int RegistrationTableSize => 7;
 
     public static unsafe void BuildRegistrationTable(Span<CF_CALLBACK_REGISTRATION> table)
     {
@@ -28,10 +28,20 @@ internal static class UnmanagedEntryPoints
         };
         table[3] = new CF_CALLBACK_REGISTRATION
         {
+            Type = CF_CALLBACK_TYPE.CF_CALLBACK_TYPE_NOTIFY_FILE_OPEN_COMPLETION,
+            Callback = &OnOpenCompletion,
+        };
+        table[4] = new CF_CALLBACK_REGISTRATION
+        {
+            Type = CF_CALLBACK_TYPE.CF_CALLBACK_TYPE_NOTIFY_FILE_CLOSE_COMPLETION,
+            Callback = &OnCloseCompletion,
+        };
+        table[5] = new CF_CALLBACK_REGISTRATION
+        {
             Type = CF_CALLBACK_TYPE.CF_CALLBACK_TYPE_NOTIFY_DELETE,
             Callback = &OnNotifyDelete,
         };
-        table[4] = new CF_CALLBACK_REGISTRATION
+        table[6] = new CF_CALLBACK_REGISTRATION
         {
             Type = CF_CALLBACK_TYPE.CF_CALLBACK_TYPE_NONE,
             Callback = null,
@@ -108,6 +118,73 @@ internal static class UnmanagedEntryPoints
             info->TransferKey,
             info->RequestKey,
             (nint)info->CorrelationVector);
+    }
+
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
+    private static unsafe void OnOpenCompletion(CF_CALLBACK_INFO* info, CF_CALLBACK_PARAMETERS* parameters)
+    {
+        var ctx = SyncContext.FromPointer(info->CallbackContext);
+        var relativePath = Marshaller.GetRelativePath(info, ctx.SyncRootPath);
+        if (string.IsNullOrEmpty(relativePath) || relativePath == "/") return;
+
+        var localPath = Path.Combine(ctx.SyncRootPath, relativePath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+        if (!File.Exists(localPath)) return;
+
+        ctx.OpenFileWriteTimes[relativePath] = File.GetLastWriteTimeUtc(localPath);
+        _ = DispatchOpenAsync(ctx, relativePath);
+    }
+
+    private static async Task DispatchOpenAsync(SyncContext ctx, string relativePath)
+    {
+        try
+        {
+            Trace.WriteLine($"FileOpen: {relativePath}");
+            await ctx.Callbacks.OnFileOpenAsync(relativePath).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Trace.WriteLine($"FileOpen error: {ex.Message}");
+        }
+    }
+
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
+    private static unsafe void OnCloseCompletion(CF_CALLBACK_INFO* info, CF_CALLBACK_PARAMETERS* parameters)
+    {
+        var ctx = SyncContext.FromPointer(info->CallbackContext);
+        var relativePath = Marshaller.GetRelativePath(info, ctx.SyncRootPath);
+        if (string.IsNullOrEmpty(relativePath) || relativePath == "/") return;
+
+        var localPath = Path.Combine(ctx.SyncRootPath, relativePath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+        var isDeleted = (parameters->Union.CloseCompletion.Flags & CF_CALLBACK_CLOSE_COMPLETION_FLAGS.CF_CALLBACK_CLOSE_COMPLETION_FLAG_DELETED) != 0;
+
+        bool isModified = false;
+        if (!isDeleted && File.Exists(localPath)
+            && ctx.OpenFileWriteTimes.TryRemove(relativePath, out var prevWriteTime))
+        {
+            isModified = File.GetLastWriteTimeUtc(localPath) != prevWriteTime;
+        }
+        else
+        {
+            ctx.OpenFileWriteTimes.TryRemove(relativePath, out _);
+        }
+
+        _ = DispatchCloseAsync(ctx, relativePath, localPath, isDeleted, isModified);
+    }
+
+    private static async Task DispatchCloseAsync(
+        SyncContext ctx, string relativePath, string localPath, bool isDeleted, bool isModified)
+    {
+        try
+        {
+            Trace.WriteLine($"FileClose: {relativePath} modified={isModified} deleted={isDeleted}");
+            await ctx.Callbacks.OnFileCloseAsync(relativePath, isDeleted, isModified).ConfigureAwait(false);
+            if (!isDeleted && File.Exists(localPath))
+                CfOperations.DehydratePlaceholder(localPath);
+        }
+        catch (Exception ex)
+        {
+            Trace.WriteLine($"FileClose error: {ex.Message}");
+        }
     }
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]

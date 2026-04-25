@@ -68,6 +68,14 @@ public static unsafe partial class CldApi
         long* convertUsn,
         void* overlapped);
 
+    [LibraryImport(CldApiDll, EntryPoint = "CfDehydratePlaceholder")]
+    public static partial int CfDehydratePlaceholder(
+        IntPtr fileHandle,
+        long startingOffset,
+        long length,
+        CF_DEHYDRATE_FLAGS dehydrateFlags,
+        IntPtr overlapped);
+
     [LibraryImport(CldApiDll, EntryPoint = "CfOpenFileWithOplock", StringMarshalling = StringMarshalling.Utf16)]
     public static partial int CfOpenFileWithOplock(
         string filePath,
