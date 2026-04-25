@@ -180,19 +180,16 @@ public sealed class CafsSyncCallbacks : ISyncCallbacks
     /// <summary>
     /// アップロード中、定期的に AcquireLock を呼ぶことで lock の expiresAt を延長する。
     /// (サーバ側 acquireLock は同一ユーザー保持時に renew として動作する。)
+    /// 待ちは Task.Delay ではなく WaitHandle.WaitOne にして、キャンセル時に
+    /// OperationCanceledException を投げないようにする (first-chance 例外のノイズ削減)。
     /// </summary>
     private Task StartLockHeartbeat(string relativePath, CancellationToken ct) => Task.Run(async () =>
     {
         while (!ct.IsCancellationRequested)
         {
-            try
-            {
-                await Task.Delay(LockHeartbeatInterval, ct).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
+            // キャンセルされたら true 返り → 即抜ける。タイムアウトで false 返り → renew 実行。
+            if (ct.WaitHandle.WaitOne(LockHeartbeatInterval))
                 break;
-            }
 
             try
             {
@@ -204,7 +201,7 @@ public sealed class CafsSyncCallbacks : ISyncCallbacks
                 Trace.WriteLine($"Lock renew failed: {relativePath}: {ex.Message}");
             }
         }
-    }, ct);
+    }, CancellationToken.None);
 
     /// <summary>
     /// ロック取得失敗時、ローカルの変更を conflict file としてコピー保存する。
