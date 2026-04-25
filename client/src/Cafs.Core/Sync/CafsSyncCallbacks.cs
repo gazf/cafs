@@ -18,16 +18,12 @@ public sealed class CafsSyncCallbacks : ISyncCallbacks
 
     public async Task<IReadOnlyList<PlaceholderInfo>> ListAsync(string relativePath, CancellationToken ct)
     {
-        var entries = await _server.ListDirectoryAsync(relativePath).ConfigureAwait(false);
+        var entries = await _server.ListDirectoryAsync(relativePath, ct).ConfigureAwait(false);
         var result = new PlaceholderInfo[entries.Count];
         for (int i = 0; i < entries.Count; i++)
         {
             var e = entries[i];
-            result[i] = new PlaceholderInfo(
-                e.Name,
-                e.Size,
-                DateTime.Parse(e.LastModified),
-                e.Type == "directory");
+            result[i] = new PlaceholderInfo(e.Name, e.Size, e.LastModified, e.Type == "directory");
         }
         return result;
     }
@@ -35,7 +31,7 @@ public sealed class CafsSyncCallbacks : ISyncCallbacks
     public async Task HydrateAsync(
         string relativePath, long offset, long length, DataTransfer transfer, CancellationToken ct)
     {
-        using var stream = await _server.DownloadFileAsync(relativePath, offset, length).ConfigureAwait(false);
+        using var stream = await _server.DownloadFileAsync(relativePath, offset, length, ct).ConfigureAwait(false);
 
         var buffer = ArrayPool<byte>.Shared.Rent(HydrateChunkSize);
         try

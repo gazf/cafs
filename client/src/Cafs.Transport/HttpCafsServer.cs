@@ -21,34 +21,32 @@ public class HttpCafsServer : ICafsServer, IDisposable
     private readonly HttpClient _http;
     private readonly string _baseUrl;
 
-    public HttpCafsServer(string baseUrl, string bearerToken)
+    public HttpCafsServer(HttpClient http, string baseUrl)
     {
+        _http = http;
         _baseUrl = baseUrl.TrimEnd('/');
-        _http = new HttpClient();
-        _http.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", bearerToken);
     }
 
-    public async Task<IReadOnlyList<FileNode>> ListDirectoryAsync(string path)
+    public async Task<IReadOnlyList<FileNode>> ListDirectoryAsync(string path, CancellationToken ct = default)
     {
         var url = $"{_baseUrl}/files{NormalizePath(path)}";
-        var response = await _http.GetAsync(url);
+        var response = await _http.GetAsync(url, ct);
         await EnsureSuccess(response);
-        var json = await response.Content.ReadAsStringAsync();
+        var json = await response.Content.ReadAsStringAsync(ct);
         return JsonSerializer.Deserialize<List<FileNode>>(json) ?? [];
     }
 
-    public async Task<FileNode> GetFileInfoAsync(string path)
+    public async Task<FileNode> GetFileInfoAsync(string path, CancellationToken ct = default)
     {
         var url = $"{_baseUrl}/files{NormalizePath(path)}";
-        var response = await _http.GetAsync(url);
+        var response = await _http.GetAsync(url, ct);
         await EnsureSuccess(response);
-        var json = await response.Content.ReadAsStringAsync();
+        var json = await response.Content.ReadAsStringAsync(ct);
         return JsonSerializer.Deserialize<FileNode>(json)
             ?? throw new CafsApiException("Failed to parse response", 500);
     }
 
-    public async Task<Stream> DownloadFileAsync(string path, long offset = 0, long length = -1)
+    public async Task<Stream> DownloadFileAsync(string path, long offset = 0, long length = -1, CancellationToken ct = default)
     {
         var url = $"{_baseUrl}/content{NormalizePath(path)}";
         var request = new HttpRequestMessage(HttpMethod.Get, url);
@@ -59,41 +57,41 @@ public class HttpCafsServer : ICafsServer, IDisposable
             request.Headers.Range = new RangeHeaderValue(offset, end);
         }
 
-        var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+        var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
         await EnsureSuccess(response);
-        return await response.Content.ReadAsStreamAsync();
+        return await response.Content.ReadAsStreamAsync(ct);
     }
 
-    public async Task UploadFileAsync(string path, Stream content)
+    public async Task UploadFileAsync(string path, Stream content, CancellationToken ct = default)
     {
         var url = $"{_baseUrl}/content{NormalizePath(path)}";
         using var streamContent = new StreamContent(content);
         streamContent.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
-        var response = await _http.PutAsync(url, streamContent);
+        var response = await _http.PutAsync(url, streamContent, ct);
         await EnsureSuccess(response);
     }
 
-    public async Task DeleteFileAsync(string path)
+    public async Task DeleteFileAsync(string path, CancellationToken ct = default)
     {
         var url = $"{_baseUrl}/files{NormalizePath(path)}";
-        var response = await _http.DeleteAsync(url);
+        var response = await _http.DeleteAsync(url, ct);
         if ((int)response.StatusCode == 404) return;
         await EnsureSuccess(response);
     }
 
-    public async Task<LockInfo?> AcquireLockAsync(string path)
+    public async Task<LockInfo?> AcquireLockAsync(string path, CancellationToken ct = default)
     {
         var url = $"{_baseUrl}/locks{NormalizePath(path)}";
-        var response = await _http.PostAsync(url, null);
+        var response = await _http.PostAsync(url, null, ct);
         await EnsureSuccess(response);
-        var json = await response.Content.ReadAsStringAsync();
+        var json = await response.Content.ReadAsStringAsync(ct);
         return JsonSerializer.Deserialize<LockInfo>(json);
     }
 
-    public async Task ReleaseLockAsync(string path)
+    public async Task ReleaseLockAsync(string path, CancellationToken ct = default)
     {
         var url = $"{_baseUrl}/locks{NormalizePath(path)}";
-        var response = await _http.DeleteAsync(url);
+        var response = await _http.DeleteAsync(url, ct);
         await EnsureSuccess(response);
     }
 

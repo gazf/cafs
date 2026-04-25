@@ -24,6 +24,7 @@ public class SyncEngine
 
     public void StartPeriodicSync(TimeSpan interval)
     {
+        StopPeriodicSync();
         _timer = new System.Threading.Timer(
             async _ =>
             {

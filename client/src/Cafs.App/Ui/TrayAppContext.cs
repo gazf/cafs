@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Net.Http.Headers;
 using System.Windows.Forms;
 using Cafs.App.Config;
 using Cafs.Core.Sync;
@@ -71,7 +72,10 @@ public sealed class TrayAppContext : ApplicationContext
         try
         {
             SetStatus("Connecting...");
-            _server = new HttpCafsServer(_settings.ServerUrl, _settings.BearerToken);
+            var http = new HttpClient();
+            http.DefaultRequestHeaders.Authorization =
+                new AuthenticationHeaderValue("Bearer", _settings.BearerToken);
+            _server = new HttpCafsServer(http, _settings.ServerUrl);
             Directory.CreateDirectory(_settings.SyncRootPath);
 
             SyncRootRegistrar.Register(new SyncRootOptions(
