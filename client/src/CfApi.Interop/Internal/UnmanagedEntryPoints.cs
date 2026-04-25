@@ -160,10 +160,26 @@ internal static class UnmanagedEntryPoints
         var isDeleted = (parameters->Union.CloseCompletion.Flags & CF_CALLBACK_CLOSE_COMPLETION_FLAGS.CF_CALLBACK_CLOSE_COMPLETION_FLAG_DELETED) != 0;
 
         bool isModified = false;
-        if (!isDeleted && File.Exists(localPath)
-            && ctx.OpenFileWriteTimes.TryRemove(relativePath, out var prevWriteTime))
+        if (!isDeleted && File.Exists(localPath))
         {
-            isModified = File.GetLastWriteTimeUtc(localPath) != prevWriteTime;
+            var currentWriteTime = File.GetLastWriteTimeUtc(localPath);
+
+            // 第1検出: open/close ウィンドウ内で writeTime が変わった
+            if (ctx.OpenFileWriteTimes.TryRemove(relativePath, out var openWriteTime)
+                && currentWriteTime != openWriteTime)
+            {
+                isModified = true;
+            }
+
+            // 第2検出: 最後に同期した時刻より新しい (= ウィンドウ外で書き込まれた)
+            // Notepad の save-to-temp+rename や autosave で OPEN/CLOSE を伴わない
+            // 書き込みもこちらで拾える。
+            if (!isModified
+                && ctx.LastSyncedWriteTimes.TryGetValue(relativePath, out var lastSynced)
+                && currentWriteTime > lastSynced)
+            {
+                isModified = true;
+            }
         }
         else
         {
@@ -194,8 +210,18 @@ internal static class UnmanagedEntryPoints
             Trace.WriteLine($"FileClose error: {ex.Message}");
         }
 
-        if (safeToDehydrate && !isDeleted && File.Exists(localPath))
+        if (isDeleted)
+        {
+            ctx.LastSyncedWriteTimes.TryRemove(relativePath, out _);
+            return;
+        }
+
+        if (safeToDehydrate && File.Exists(localPath))
+        {
+            // 同期完了 (アップロード成功 or 純粋な read) → 現在の writeTime を「最後に同期した時刻」として記録
+            ctx.LastSyncedWriteTimes[relativePath] = File.GetLastWriteTimeUtc(localPath);
             CfOperations.DehydratePlaceholder(localPath);
+        }
     }
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]

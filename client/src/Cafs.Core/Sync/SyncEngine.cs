@@ -42,6 +42,10 @@ public class SyncEngine
             Trace.WriteLine($"FullSync: creating {infos.Count} placeholder(s) in '{localDir}'");
             _syncProvider.CreatePlaceholders(localDir, infos);
 
+            // 各ファイルの「最後に同期した時刻」を記録 (close 時の modify 検出に使う)
+            foreach (var child in children.Where(c => !c.IsDirectory))
+                _syncProvider.RecordSyncedWriteTime(child.Path, child.LastModified);
+
             // CreatePlaceholders だけでは Explorer のビューが再列挙されない。
             // ディレクトリ単位で SHCNE_UPDATEDIR を打って、開いているビューに反映させる。
             Shell.NotifyUpdateDir(localDir);
@@ -89,6 +93,8 @@ public class SyncEngine
                 [
                     new PlaceholderInfo(name, evt.Size, lastModified, isDirectory),
                 ]);
+                if (!isDirectory)
+                    _syncProvider.RecordSyncedWriteTime(evt.Path, lastModified);
                 if (evt.Event == "created")
                     Shell.NotifyCreate(localItem, isDirectory);
                 else

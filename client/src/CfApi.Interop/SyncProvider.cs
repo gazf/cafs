@@ -53,6 +53,16 @@ public sealed class SyncProvider : IDisposable
         CfOperations.CreatePlaceholders(localDirectoryPath, entries);
     }
 
+    /// <summary>
+    /// 「最後に同期したときの LastWriteTime」を記録する。close 時の modify 検出に使う。
+    /// FullSync / WSS イベントの created/modified ハンドル時にサーバの lastModified を、
+    /// アップロード成功後にローカルの writeTime を、それぞれ呼び出し側から記録する。
+    /// </summary>
+    public void RecordSyncedWriteTime(string relativePath, DateTime writeTimeUtc)
+    {
+        _context.LastSyncedWriteTimes[relativePath] = writeTimeUtc;
+    }
+
     public void Dispose()
     {
         Disconnect();
