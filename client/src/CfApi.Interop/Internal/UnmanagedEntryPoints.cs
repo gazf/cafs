@@ -13,18 +13,18 @@ internal static class UnmanagedEntryPoints
     {
         table[0] = new CF_CALLBACK_REGISTRATION
         {
-            Type = CF_CALLBACK_TYPE.CF_CALLBACK_TYPE_FETCH_PLACEHOLDERS,
-            Callback = &OnFetchPlaceholders,
-        };
-        table[1] = new CF_CALLBACK_REGISTRATION
-        {
             Type = CF_CALLBACK_TYPE.CF_CALLBACK_TYPE_FETCH_DATA,
             Callback = &OnFetchData,
         };
-        table[2] = new CF_CALLBACK_REGISTRATION
+        table[1] = new CF_CALLBACK_REGISTRATION
         {
             Type = CF_CALLBACK_TYPE.CF_CALLBACK_TYPE_CANCEL_FETCH_DATA,
             Callback = &OnCancelFetchData,
+        };
+        table[2] = new CF_CALLBACK_REGISTRATION
+        {
+            Type = CF_CALLBACK_TYPE.CF_CALLBACK_TYPE_FETCH_PLACEHOLDERS,
+            Callback = &OnFetchPlaceholders,
         };
         table[3] = new CF_CALLBACK_REGISTRATION
         {
@@ -36,34 +36,6 @@ internal static class UnmanagedEntryPoints
             Type = CF_CALLBACK_TYPE.CF_CALLBACK_TYPE_NONE,
             Callback = null,
         };
-    }
-
-    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
-    private static unsafe void OnFetchPlaceholders(CF_CALLBACK_INFO* info, CF_CALLBACK_PARAMETERS* parameters)
-    {
-        var ctx = SyncContext.FromPointer(info->CallbackContext);
-        var relativePath = Marshaller.GetRelativePath(info, ctx.SyncRootPath);
-        var connectionKey = info->ConnectionKey;
-        var transferKey = info->TransferKey;
-        var requestKey = info->RequestKey;
-        var correlationVector = (nint)info->CorrelationVector;
-        _ = DispatchFetchPlaceholdersAsync(ctx, relativePath, connectionKey, transferKey, requestKey, correlationVector);
-    }
-
-    private static async Task DispatchFetchPlaceholdersAsync(
-        SyncContext ctx, string relativePath,
-        ulong connectionKey, long transferKey, long requestKey, nint correlationVector)
-    {
-        try
-        {
-            Trace.WriteLine($"FetchPlaceholders: {relativePath}");
-            var entries = await ctx.Callbacks.ListAsync(relativePath, CancellationToken.None).ConfigureAwait(false);
-            TransferPlaceholders(connectionKey, transferKey, requestKey, correlationVector, entries);
-        }
-        catch (Exception ex)
-        {
-            Trace.WriteLine($"FetchPlaceholders error: {ex.Message}");
-        }
     }
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
@@ -128,6 +100,17 @@ internal static class UnmanagedEntryPoints
     }
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
+    private static unsafe void OnFetchPlaceholders(CF_CALLBACK_INFO* info, CF_CALLBACK_PARAMETERS* parameters)
+    {
+        // ALWAYS_FULL: placeholders are pre-populated; always respond with empty to unblock Explorer.
+        CfOperations.TransferPlaceholdersEmpty(
+            info->ConnectionKey,
+            info->TransferKey,
+            info->RequestKey,
+            (nint)info->CorrelationVector);
+    }
+
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
     private static unsafe void OnNotifyDelete(CF_CALLBACK_INFO* info, CF_CALLBACK_PARAMETERS* parameters)
     {
         var ctx = SyncContext.FromPointer(info->CallbackContext);
@@ -166,24 +149,4 @@ internal static class UnmanagedEntryPoints
         CfOperations.AckDelete(connectionKey, transferKey, requestKey, status);
     }
 
-    private static void TransferPlaceholders(
-        ulong connectionKey, long transferKey, long requestKey, nint correlationVector,
-        IReadOnlyList<PlaceholderInfo> entries)
-    {
-        if (entries.Count == 0)
-        {
-            CfOperations.TransferPlaceholdersEmpty(connectionKey, transferKey, requestKey, correlationVector);
-            return;
-        }
-
-        var batch = Marshaller.BuildPlaceholders(entries);
-        try
-        {
-            CfOperations.TransferPlaceholders(connectionKey, transferKey, requestKey, correlationVector, ref batch);
-        }
-        finally
-        {
-            batch.Dispose();
-        }
-    }
 }

@@ -141,6 +141,40 @@ internal static class CfOperations
         }
     }
 
+    public static void CreatePlaceholders(string localDirectoryPath, IReadOnlyList<PlaceholderInfo> entries)
+    {
+        if (entries.Count == 0) return;
+
+        var batch = PlaceholderBatch.Build(entries);
+        try
+        {
+            unsafe
+            {
+                fixed (char* pNames = batch.Names)
+                fixed (CF_PLACEHOLDER_CREATE_INFO* pPlaceholders = batch.Placeholders)
+                {
+                    batch.PatchPointers(pNames, pPlaceholders);
+                    var hr = CldApi.CfCreatePlaceholders(
+                        localDirectoryPath,
+                        pPlaceholders,
+                        (uint)batch.Count,
+                        CF_CREATE_FLAGS.CF_CREATE_FLAG_NONE,
+                        out uint processed);
+                    if (CldApi.Failed(hr))
+                    {
+                        // 0x800700B7 = ERROR_ALREADY_EXISTS: placeholders from a previous run still exist. Not an error.
+                        if ((uint)hr != 0x800700B7u)
+                            Trace.WriteLine($"CfCreatePlaceholders failed at '{localDirectoryPath}': 0x{hr:X8}");
+                    }
+                }
+            }
+        }
+        finally
+        {
+            batch.Dispose();
+        }
+    }
+
     public static int AckDelete(
         ulong connectionKey,
         long transferKey,

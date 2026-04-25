@@ -16,18 +16,6 @@ public sealed class CafsSyncCallbacks : ISyncCallbacks
         _server = server;
     }
 
-    public async Task<IReadOnlyList<PlaceholderInfo>> ListAsync(string relativePath, CancellationToken ct)
-    {
-        var entries = await _server.ListDirectoryAsync(relativePath, ct).ConfigureAwait(false);
-        var result = new PlaceholderInfo[entries.Count];
-        for (int i = 0; i < entries.Count; i++)
-        {
-            var e = entries[i];
-            result[i] = new PlaceholderInfo(e.Name, e.Size, e.LastModified, e.Type == "directory");
-        }
-        return result;
-    }
-
     public async Task HydrateAsync(
         string relativePath, long offset, long length, DataTransfer transfer, CancellationToken ct)
     {

@@ -207,3 +207,25 @@ export async function deleteFile(relativePath: string): Promise<void> {
 export function getStorageRoot(): string {
   return STORAGE_ROOT;
 }
+
+export interface TreeEntry extends FileEntry {
+  path: string;
+}
+
+export async function getTree(): Promise<TreeEntry[]> {
+  const results: TreeEntry[] = [];
+
+  async function walk(relPath: string): Promise<void> {
+    const entries = await listDirectory(relPath);
+    for (const entry of entries) {
+      const entryPath = relPath === "/" ? `/${entry.name}` : `${relPath}/${entry.name}`;
+      results.push({ ...entry, path: entryPath });
+      if (entry.type === "directory") {
+        await walk(entryPath);
+      }
+    }
+  }
+
+  await walk("/");
+  return results;
+}

@@ -44,6 +44,11 @@ public sealed class SyncProvider : IDisposable
         _connected = false;
     }
 
+    public void CreatePlaceholders(string localDirectoryPath, IReadOnlyList<PlaceholderInfo> entries)
+    {
+        CfOperations.CreatePlaceholders(localDirectoryPath, entries);
+    }
+
     public void Dispose()
     {
         Disconnect();

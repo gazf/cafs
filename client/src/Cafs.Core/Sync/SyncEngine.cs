@@ -1,46 +1,101 @@
 using System.Diagnostics;
 using Cafs.Core.Abstractions;
+using Cafs.Core.Models;
+using CfApi.Interop;
 
 namespace Cafs.Core.Sync;
 
 public class SyncEngine
 {
     private readonly ICafsServer _server;
-    private System.Threading.Timer? _timer;
+    private readonly SyncProvider _syncProvider;
+    private readonly string _syncRootPath;
 
-    public SyncEngine(ICafsServer server)
+    public SyncEngine(ICafsServer server, SyncProvider syncProvider, string syncRootPath)
     {
         _server = server;
+        _syncProvider = syncProvider;
+        _syncRootPath = syncRootPath;
     }
 
-    // Connectivity check only — placeholders are populated on-demand via FetchPlaceholders.
-    // Pre-creating placeholders conflicts with on-demand population.
-    public async Task FullSyncAsync()
+    public async Task FullSyncAsync(CancellationToken ct = default)
     {
-        Trace.WriteLine("FullSync: verifying server connectivity...");
-        await _server.ListDirectoryAsync("/");
-        Trace.WriteLine("FullSync: ok.");
+        Trace.WriteLine("FullSync: fetching tree from server...");
+        var tree = await _server.GetTreeAsync(ct);
+        Trace.WriteLine($"FullSync: {tree.Count} entries received.");
+
+        var byParent = tree
+            .GroupBy(n => n.ParentPath)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        var queue = new Queue<string>();
+        queue.Enqueue("/");
+
+        while (queue.Count > 0)
+        {
+            var dir = queue.Dequeue();
+            if (!byParent.TryGetValue(dir, out var children)) continue;
+
+            var localDir = ToLocalPath(dir);
+            var infos = children.Select(n => new PlaceholderInfo(n.Name, n.Size, n.LastModified, n.IsDirectory)).ToList();
+
+            Trace.WriteLine($"FullSync: creating {infos.Count} placeholder(s) in '{localDir}'");
+            _syncProvider.CreatePlaceholders(localDir, infos);
+
+            foreach (var child in children.Where(c => c.IsDirectory))
+                queue.Enqueue(child.Path);
+        }
+
+        Trace.WriteLine("FullSync: complete.");
     }
 
-    public void StartPeriodicSync(TimeSpan interval)
+    public async Task RunEventLoopAsync(IEventStream events, CancellationToken ct)
     {
-        StopPeriodicSync();
-        _timer = new System.Threading.Timer(
-            async _ =>
+        await foreach (var evt in events.ReadEventsAsync(ct).ConfigureAwait(false))
+        {
+            try
             {
-                try { await FullSyncAsync(); }
-                catch (Exception ex) { Console.Error.WriteLine($"Periodic sync error: {ex.Message}"); }
-            },
-            null,
-            interval,
-            interval
-        );
-        Console.WriteLine($"Periodic sync started (interval: {interval.TotalSeconds}s)");
+                HandleEvent(evt);
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"EventLoop error: {ex.Message}");
+            }
+        }
     }
 
-    public void StopPeriodicSync()
+    private void HandleEvent(ServerEvent evt)
     {
-        _timer?.Dispose();
-        _timer = null;
+        Trace.WriteLine($"Event: {evt.Event} {evt.Path}");
+
+        switch (evt.Event)
+        {
+            case "created":
+            case "modified" when evt.Type is not null:
+                var parentPath = evt.Path.LastIndexOf('/') is int pi && pi > 0
+                    ? evt.Path[..pi]
+                    : "/";
+                var name = evt.Path[(evt.Path.LastIndexOf('/') + 1)..];
+                var localParent = ToLocalPath(parentPath);
+                var lastModified = evt.LastModified ?? DateTime.UtcNow;
+                _syncProvider.CreatePlaceholders(localParent,
+                [
+                    new PlaceholderInfo(name, evt.Size, lastModified, evt.Type == "directory"),
+                ]);
+                break;
+
+            case "deleted":
+                var localPath = ToLocalPath(evt.Path);
+                if (Directory.Exists(localPath))
+                    Directory.Delete(localPath, recursive: true);
+                else if (File.Exists(localPath))
+                    File.Delete(localPath);
+                break;
+        }
     }
+
+    private string ToLocalPath(string serverPath) =>
+        serverPath == "/"
+            ? _syncRootPath
+            : Path.Combine(_syncRootPath, serverPath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
 }

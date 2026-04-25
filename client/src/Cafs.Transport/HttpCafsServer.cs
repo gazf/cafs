@@ -27,6 +27,15 @@ public class HttpCafsServer : ICafsServer, IDisposable
         _baseUrl = baseUrl.TrimEnd('/');
     }
 
+    public async Task<IReadOnlyList<TreeNode>> GetTreeAsync(CancellationToken ct = default)
+    {
+        var url = $"{_baseUrl}/tree";
+        var response = await _http.GetAsync(url, ct);
+        await EnsureSuccess(response, ct);
+        var json = await response.Content.ReadAsStringAsync(ct);
+        return JsonSerializer.Deserialize<List<TreeNode>>(json) ?? [];
+    }
+
     public async Task<IReadOnlyList<FileNode>> ListDirectoryAsync(string path, CancellationToken ct = default)
     {
         var url = $"{_baseUrl}/files{NormalizePath(path)}";
