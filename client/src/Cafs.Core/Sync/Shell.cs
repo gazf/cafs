@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 namespace Cafs.Core.Sync;
@@ -22,12 +23,21 @@ internal static partial class Shell
     [LibraryImport("shell32.dll", EntryPoint = "SHChangeNotify", StringMarshalling = StringMarshalling.Utf16)]
     private static partial void SHChangeNotify(int eventId, uint flags, string item1, IntPtr item2);
 
-    public static void NotifyCreate(string localPath, bool isDirectory) =>
+    public static void NotifyCreate(string localPath, bool isDirectory)
+    {
         SHChangeNotify(isDirectory ? SHCNE_MKDIR : SHCNE_CREATE, SHCNF_PATHW, localPath, IntPtr.Zero);
+        Trace.WriteLine($"Shell.NotifyCreate ({(isDirectory ? "MKDIR" : "CREATE")}): {localPath}");
+    }
 
-    public static void NotifyDelete(string localPath, bool isDirectory) =>
+    public static void NotifyDelete(string localPath, bool isDirectory)
+    {
         SHChangeNotify(isDirectory ? SHCNE_RMDIR : SHCNE_DELETE, SHCNF_PATHW, localPath, IntPtr.Zero);
+        Trace.WriteLine($"Shell.NotifyDelete ({(isDirectory ? "RMDIR" : "DELETE")}): {localPath}");
+    }
 
-    public static void NotifyUpdate(string localPath) =>
+    public static void NotifyUpdate(string localPath)
+    {
         SHChangeNotify(SHCNE_UPDATEITEM, SHCNF_PATHW, localPath, IntPtr.Zero);
+        Trace.WriteLine($"Shell.NotifyUpdate: {localPath}");
+    }
 }
