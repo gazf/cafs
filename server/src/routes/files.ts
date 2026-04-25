@@ -20,11 +20,21 @@ type Env = {
 };
 
 export function registerFileRoutes(app: Hono<Env>) {
-  // GET /tree — recursive full tree listing
+  // GET /tree — recursive full tree listing (read 権限のあるノードのみ返す)
   app.get("/tree", async (c) => {
+    const user = c.get("user");
     try {
       const tree = await getTree();
-      return c.json(tree);
+      // 各ノードを read 権限でフィルタ。並列に判定して結果を保つ。
+      const checks = await Promise.all(
+        tree.map(async (n) =>
+          (await checkPermission(user.id, n.path, "read")) ? n : null
+        )
+      );
+      const filtered = checks.filter(
+        (n): n is (typeof tree)[number] => n !== null
+      );
+      return c.json(filtered);
     } catch (e) {
       if (e instanceof FileServiceError) {
         return c.json({ message: e.message }, e.statusCode as 400);

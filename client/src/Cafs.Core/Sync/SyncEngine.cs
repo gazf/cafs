@@ -72,25 +72,39 @@ public class SyncEngine
         {
             case "created":
             case "modified" when evt.Type is not null:
+            {
                 var parentPath = evt.Path.LastIndexOf('/') is int pi && pi > 0
                     ? evt.Path[..pi]
                     : "/";
                 var name = evt.Path[(evt.Path.LastIndexOf('/') + 1)..];
                 var localParent = ToLocalPath(parentPath);
+                var localItem = Path.Combine(localParent, name);
                 var lastModified = evt.LastModified ?? DateTime.UtcNow;
+                var isDirectory = evt.Type == "directory";
                 _syncProvider.CreatePlaceholders(localParent,
                 [
-                    new PlaceholderInfo(name, evt.Size, lastModified, evt.Type == "directory"),
+                    new PlaceholderInfo(name, evt.Size, lastModified, isDirectory),
                 ]);
+                if (evt.Event == "created")
+                    Shell.NotifyCreate(localItem, isDirectory);
+                else
+                    Shell.NotifyUpdate(localItem);
                 break;
+            }
 
             case "deleted":
+            {
                 var localPath = ToLocalPath(evt.Path);
-                if (Directory.Exists(localPath))
+                var wasDirectory = Directory.Exists(localPath);
+                if (wasDirectory)
                     Directory.Delete(localPath, recursive: true);
                 else if (File.Exists(localPath))
                     File.Delete(localPath);
+                else
+                    break; // 元から無いなら通知不要
+                Shell.NotifyDelete(localPath, wasDirectory);
                 break;
+            }
         }
     }
 

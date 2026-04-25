@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { getStorageRoot } from "../services/file.service.ts";
+import { checkPermission } from "../services/auth.service.ts";
 import type { AuthUser } from "../services/auth.service.ts";
 
 type Env = {
@@ -10,6 +11,8 @@ type Env = {
 
 export function registerEventRoutes(app: Hono<Env>) {
   app.get("/events", (c) => {
+    // 接続ユーザーを auth ミドルウェアから取得し、配信前に read 権限を確認する。
+    const user = c.get("user");
     const { socket, response } = Deno.upgradeWebSocket(c.req.raw);
     const root = getStorageRoot();
     const watcher = Deno.watchFs(root, { recursive: true });
@@ -23,6 +26,9 @@ export function registerEventRoutes(app: Hono<Env>) {
             for (const p of event.paths) {
               const rel = "/" + p.slice(root.length).replace(/\\/g, "/").replace(/^\/+/, "");
               if (!rel || rel === "/") continue;
+
+              // 認可フィルタ: read 権限がなければ配信しない (パス・サイズ・更新時刻の漏洩を防ぐ)。
+              if (!(await checkPermission(user.id, rel, "read"))) continue;
 
               if (event.kind === "create" || event.kind === "modify") {
                 try {
