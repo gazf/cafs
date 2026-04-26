@@ -2,6 +2,258 @@
 
 実装に大きな影響を与える設計判断を、決定事項・選択肢・選択理由を残す形で記録する。
 
+---
+
+## ADR-001: プロトコル選択 — CfApi + HTTPS
+
+**決定**: Windows Cloud Files API(CfApi)+ HTTPS REST API を採用。
+
+**却下した選択肢**:
+
+- **WebDAV**: Microsoft が 2023 年に非推奨化、Windows 10/11 でデフォルト無効、将来削除予定
+- **SMB / Samba 拡張**: プロトコル設計古い、Zero Trust と非整合、Windows カーネル実装への依存から脱却不可
+- **独自プロトコル**: 既存ツール(curl、ブラウザ等)でデバッグできない
+
+**選択理由**:
+
+- CfApi は OneDrive 級の UX(エクスプローラー統合、オンデマンドハイドレーション)
+- HTTPS 単一ポート(443)でファイアウォール・プロキシ越しでも動作
+- TLS 1.3 で暗号化、Zero Trust と整合
+- モダンな認証(OIDC、JWT)と統合しやすい
+
+---
+
+## ADR-002: Vanara.PInvoke.CldApi の不採用
+
+**決定**: Vanara ライブラリを使わず、P/Invoke を自前実装する。
+
+**却下理由**:
+
+- ホットパスで `PinnedObject` + `Marshal.PtrToStructure` のヒープアロケが発生
+- `DllImport` ベースで、`LibraryImport` や `UnmanagedCallersOnly` の利点を享受できない
+- リフレクションベースのマーシャラで Native AOT に非対応
+- 使わない数百関数がアセンブリに含まれる
+
+**採用した代替**:
+
+自前の `CfApi.Native` レイヤー。`LibraryImport`、`readonly struct`、関数ポインタ(`delegate* unmanaged`)、`Pack = 8` 明示等、モダン C# の機能をフル活用。
+
+---
+
+## ADR-003: レイヤー構造 — 5 層
+
+**決定**: Native / Interop / Core / Transport / App の 5 層構造。
+
+**各層の責務**:
+
+- **CfApi.Native**: Win32 CfApi の P/Invoke 写像のみ。ビジネスロジックを持たない
+- **CfApi.Interop**: Native 型と Domain 型の翻訳、コールバックディスパッチ。Native 型を外に漏らさない
+- **Cafs.Core**: ドメインロジック、ユースケース、抽象インターフェース(`ICafsServer`、`IEventStream` 等)
+- **Cafs.Transport**: HTTP / WSS / SSE 等の通信実装
+- **Cafs.App**: WinForms UI、設定、DI 組み立て、エントリポイント
+
+**依存方向**:
+
+```
+Native ← Interop ← Core ← App
+                    ↓
+                 Transport → Deno Server
+```
+
+**選択理由**:
+
+- 責務が明確、Clean Architecture 準拠
+- Core は CfApi/HTTP の具体実装を知らない(テスト容易、移植容易)
+- 将来の CLI / Web UI 追加時に Core / Transport を再利用可能
+
+---
+
+## ADR-004: オフライン時の挙動 — 読み取り専用または使用不可
+
+**決定**: オフライン時は編集不可。環境に応じて「読み取り専用」または「使用不可」を選ぶ。
+
+**却下した選択肢**:
+
+- **オフライン編集 + 復帰時コンフリクト解決**: Nextcloud / OneDrive 的なアプローチ。コンフリクト発生源、UX を損なう
+
+**選択理由**:
+
+- コンフリクトを原理的に発生させない
+- 監査・コンプライアンスがクリーン
+- 実装が大幅にシンプル(UploadQueue、ConflictResolver が不要)
+- 社内ファイルサーバー代替として妥当な割り切り
+
+**実装方針**:
+
+- ネットワーク状態監視
+- オフライン時は FETCH_DATA で `STATUS_CLOUD_FILE_NETWORK_UNAVAILABLE` を返す
+- タスクトレイで状態表示
+
+---
+
+## ADR-005: コンフリクト解決 — サーバー側ロック(初版)
+
+**決定(初版)**: ファイル open 時にサーバー側ロックを取得、close + アップロード完了後に解放する。
+
+**排他制御の 3 層**:
+
+1. 論理ロック(サーバー側 KV): 他ユーザーへの編集中通知
+2. ETag / If-Match(HTTP): ロック漏れの保険、並行 PUT を防ぐ
+3. atomic rename(ファイルシステム): 書き込み中の中途半端なデータを他ユーザーから隠す
+
+**現状**:
+
+本 ADR は Phase 5 実装中に再評価され、**ADR-016 / ADR-018 で更新**された。SID ベース Liveness 管理 + コンフリクトファイル戦略(ADR-017)を採用している。
+
+**関連 ADR**: ADR-016, ADR-017, ADR-018
+
+---
+
+## ADR-006: イベント通知 — WebSocket(WSS)採用
+
+**決定**: WebSocket(WSS)で差分イベントをサーバーからプッシュ受信する。
+
+**却下した選択肢**:
+
+- **ポーリング**: リアルタイム性が出ない、サーバー負荷が高い
+- **SSE 単独**: サーバーからの一方向のみ、双方向通信ができない
+
+**SSE を補助に残す可能性**:
+
+Cloudflare Tunnel 環境で WSS のアイドルタイムアウト(Free/Pro で 100 秒)が問題になる場合、SSE フォールバックを検討。現時点では WSS のみで実装。
+
+**選択理由**:
+
+- リアルタイム差分受信が可能
+- 双方向通信(将来 ADR-018 のハートビート等)に活用可能
+- 標準的なプロトコル、デバッグ容易
+
+**関連 ADR**: ADR-013(本決定で WSS を正式採用), ADR-018(WSS で SID ハートビートを送る)
+
+---
+
+## ADR-007: 認証 — OIDC + JWT
+
+**決定**: LDAP / Kerberos を使わず、OIDC(OpenID Connect)経由で認証、JWT で認可。
+
+**選択理由**:
+
+- Google Workspace、Microsoft 365、Okta、Keycloak 等と直接統合可能
+- MFA 標準対応
+- JWT で HTTP / WebSocket 両方に同じ認証機構
+- ステートレス、スケール容易
+
+**JWT クレーム設計**:
+
+```json
+{
+  "sub": "user-id",
+  "device_id": "laptop-abc123",
+  "iat": 1234567890,
+  "exp": 1234571490
+}
+```
+
+短命(1 時間)+ リフレッシュトークン。デバイス ID も含め Zero Trust 対応。
+
+---
+
+## ADR-008: 権限モデル — パス + プリンシパル × アクション
+
+**決定**: 「ユーザー / グループ」×「パス」×「read / write / admin」の細粒度認可。
+
+**Deno KV スキーマ**:
+
+```
+["users", userId]                   → { id, name, email, groups }
+["groups", groupId]                 → { id, name, members }
+["permissions", path, type, id]     → { path, principal, access }
+```
+
+**アクセスチェック**:
+
+- パスの親階層まで遡って判定
+- ユーザー自身 + 所属グループの権限をチェック
+- いずれかで許可があれば OK
+
+---
+
+## ADR-009: Zero Alloc の適用範囲
+
+**決定**: モダン C# の機能は活用するが、過剰な最適化は避ける。
+
+**適用する**:
+
+- `LibraryImport` による source-generated マーシャラ
+- 構造体の `readonly struct` 化
+- 関数ポインタ(`delegate* unmanaged<>`)、Delegate 不使用
+- `UnmanagedCallersOnly` コールバック
+- ホットパスの `stackalloc` + `ArrayPool<T>` ハイブリッド
+
+**適用しない(現時点)**:
+
+- `ValueTask` 化(async 境界でメリット薄い)
+- `PoolingAsyncValueTaskMethodBuilder`(効果が測れていない)
+- カスタム `IValueTaskSource` 実装(オーバーエンジニアリング)
+- UniTask 等の外部ライブラリ(標準機能で足りる)
+
+**判断基準**: ボトルネックになってから最適化する。それまでは可読性・保守性優先。
+
+---
+
+## ADR-010: HTTP/2 の採用(将来)
+
+**決定**: サーバー・クライアント両方で HTTP/2 を有効化する(Phase 5 完了後に実装)。
+
+**理由**:
+
+- `HttpClient` の設定で簡単に有効化可能
+- ヘッダ圧縮(HPACK)で認証トークン繰り返しのオーバーヘッド削減
+- 多重化でメタデータ取得の並列化
+- HTTP/1.1 フォールバック自動対応
+
+**HTTP/3 は見送り**:
+
+- Deno、.NET 両方で実装が若い
+- UDP 443 の企業ファイアウォール通過性に懸念
+
+---
+
+## ADR-011: テスト戦略
+
+**決定**: サーバー側はインメモリ KV を使ったユニットテスト、クライアント側は実機テスト中心。
+
+**サーバー側**:
+
+- Deno 標準テスト + `:memory:` KV で独立テスト
+- CI で `deno task test` を回す
+
+**クライアント側**:
+
+- Domain 層(Cafs.Core)はモック化してユニットテスト可能
+- Interop 層以下は実機テスト必須(CfApi が Windows カーネル依存)
+- E2E: Windows 実機で Explorer から操作確認
+
+---
+
+## ADR-012: OpenAPI / TypeSpec の不採用(現時点)
+
+**決定**: API スキーマ定義ファイル(OpenAPI、TypeSpec)は現時点では導入しない。
+
+**却下理由**:
+
+- API がまだ流動的、スキーマ定義のメンテコストが高い
+- AI によるコード生成で型合わせが可能
+- 手書き OpenAPI の価値は激減
+
+**将来採用する条件**:
+
+- API が安定してきた
+- 他言語クライアント(macOS、iOS、Web)を作る予定が出てきた
+- エンタープライズ顧客から仕様書提出を求められる
+
+---
+
 ## ADR-013: プレースホルダー戦略 — ALWAYS_FULL + WSS イベント駆動
 
 **決定**: 起動時に `/tree` で全ツリーを取得し、`CF_POPULATION_POLICY_ALWAYS_FULL` でプレースホルダーを一括作成、WSS で差分プッシュ受信する。
@@ -132,7 +384,7 @@ ADR-005 で「open 時にロック取得」を決定 → Phase 5 で「読み取
 
 **保険機構**:
 
-- ロック取得失敗時(他ユーザー編集中)はローカル変更を `<name>.conflict-<timestamp><ext>` として退避(ADR-017)
+- ロック取得失敗時(他ユーザー編集中)はローカル変更を `<n>.conflict-<timestamp><ext>` として退避(ADR-017)
 - データは絶対に失わない
 
 **関連 ADR**:
@@ -289,3 +541,15 @@ async function acquireLock(filePath, userId, sid) {
 
 - 既存 Issue 7(ハートビート): 本 ADR で具体化、SID 方式に変更
 - 新規: ADR-018 実装(別 Issue として起票推奨)
+
+---
+
+## 判断基準(新しい決定をする時)
+
+以下の 3 つの問いで判定:
+
+1. **これは VPN + Samba + LDAP からの脱却に貢献するか?**
+2. **これは Zero Trust の原則に沿っているか?**
+3. **これはモダンな技術らしい、シンプルで透明な実装か?**
+
+すべて Yes なら採用、どれか No なら再検討。
