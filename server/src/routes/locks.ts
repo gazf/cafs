@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { acquireLock, releaseLock, getLock } from "../services/lock.service.ts";
+import { acquireLock, getLock, releaseLock } from "../services/lock.service.ts";
 import { checkPermission } from "../services/auth.service.ts";
 import type { AuthUser } from "../services/auth.service.ts";
 
@@ -22,7 +22,11 @@ export function registerLockRoutes(app: Hono<Env>) {
 
     const result = await acquireLock(filePath, user.id, user.deviceId);
     console.log(
-      `[locks] POST ${filePath} userId=${user.id} deviceId=${user.deviceId.slice(0, 8)} → success=${result.success}${result.success ? "" : ` msg=${result.message}`}`,
+      `[locks] POST ${filePath} userId=${user.id} deviceId=${
+        user.deviceId.slice(0, 8)
+      } → success=${result.success}${
+        result.success ? "" : ` msg=${result.message}`
+      }`,
     );
     if (!result.success) {
       return c.json({ message: result.message, lock: result.lock }, 409);
@@ -39,7 +43,9 @@ export function registerLockRoutes(app: Hono<Env>) {
 
     const released = await releaseLock(filePath, user.id, user.deviceId);
     console.log(
-      `[locks] DELETE ${filePath} userId=${user.id} deviceId=${user.deviceId.slice(0, 8)} → released=${released}`,
+      `[locks] DELETE ${filePath} userId=${user.id} deviceId=${
+        user.deviceId.slice(0, 8)
+      } → released=${released}`,
     );
     if (!released) {
       return c.json({ message: "Not the lock holder" }, 403);

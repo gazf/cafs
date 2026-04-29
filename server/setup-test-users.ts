@@ -2,14 +2,14 @@
 // Creates a "guest" user with read access to /public only, plus test files.
 // Usage: deno run --allow-read --allow-write --allow-env --unstable-kv setup-test-users.ts
 
-import { getKv, closeKv } from "./src/kv/store.ts";
+import { closeKv, getKv } from "./src/kv/store.ts";
 import { Keys } from "./src/kv/keys.ts";
 import { createAppToken } from "./src/services/auth.service.ts";
-import type { User, Group, Permission } from "./src/types.ts";
+import type { Group, Permission, User } from "./src/types.ts";
 
 async function nextId(kv: Deno.Kv, entity: string): Promise<number> {
   const key = Keys.counter(entity);
-  let result = await kv.get<number>(key);
+  const result = await kv.get<number>(key);
   const currentValue = result.value ?? 0;
   const nextValue = currentValue + 1;
   const commit = await kv.atomic().check(result).set(key, nextValue).commit();
@@ -56,9 +56,12 @@ const kv = await getKv();
 await kv
   .atomic()
   .set(Keys.userGroup(guestUserId, guestsGroupId), true)
-  .set(Keys.permission("/public", guestsGroupId), {
-    accessLevel: "read",
-  } satisfies Permission)
+  .set(
+    Keys.permission("/public", guestsGroupId),
+    {
+      accessLevel: "read",
+    } satisfies Permission,
+  )
   .commit();
 
 // Issue token for guest

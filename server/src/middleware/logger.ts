@@ -20,8 +20,7 @@ export const auditLogger = createMiddleware<Env>(async (c, next) => {
   const user = c.get("user");
   if (!user) return;
 
-  const ip =
-    c.req.header("X-Forwarded-For") ??
+  const ip = c.req.header("X-Forwarded-For") ??
     c.req.header("X-Real-IP") ??
     "unknown";
 

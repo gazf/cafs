@@ -1,6 +1,6 @@
-import { getKv, closeKv } from "./store.ts";
+import { closeKv, getKv } from "./store.ts";
 import { Keys } from "./keys.ts";
-import type { User, Group, Permission, TokenData } from "../types.ts";
+import type { Group, Permission, TokenData, User } from "../types.ts";
 
 async function hashPassword(password: string): Promise<string> {
   const encoder = new TextEncoder();
@@ -17,7 +17,7 @@ async function hashToken(token: string): Promise<string> {
 
 async function nextId(kv: Deno.Kv, entity: string): Promise<number> {
   const key = Keys.counter(entity);
-  let result = await kv.get<number>(key);
+  const result = await kv.get<number>(key);
   const currentValue = result.value ?? 0;
   const nextValue = currentValue + 1;
   const commit = await kv

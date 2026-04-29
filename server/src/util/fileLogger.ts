@@ -15,13 +15,17 @@ function ts(): string {
   const d = new Date();
   // [HH:MM:SS.mmm]
   const pad = (n: number, w = 2) => n.toString().padStart(w, "0");
-  return `[${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}]`;
+  return `[${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${
+    pad(d.getMilliseconds(), 3)
+  }]`;
 }
 
 function writeLine(level: string, args: unknown[]): void {
   if (!logFile) return;
   const text = args
-    .map((a) => (typeof a === "string" ? a : Deno.inspect(a, { colors: false })))
+    .map((
+      a,
+    ) => (typeof a === "string" ? a : Deno.inspect(a, { colors: false })))
     .join(" ");
   const line = `${ts()} ${level} ${text}\n`;
   try {

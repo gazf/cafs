@@ -8,7 +8,7 @@ export async function logAudit(
   userId: number,
   action: string,
   path: string,
-  ip: string
+  ip: string,
 ): Promise<void> {
   const kv = await getKv();
   const timestamp = new Date().toISOString();

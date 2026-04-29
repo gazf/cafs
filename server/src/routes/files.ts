@@ -1,13 +1,13 @@
 import { Hono } from "hono";
 import {
-  listDirectory,
+  deleteFile,
+  FileServiceError,
   getFileInfo,
   getTree,
+  listDirectory,
   readFile,
-  writeFile,
-  deleteFile,
   statFile,
-  FileServiceError,
+  writeFile,
 } from "../services/file.service.ts";
 import { checkPermission } from "../services/auth.service.ts";
 import {
@@ -35,12 +35,13 @@ export function registerFileRoutes(app: Hono<Env>) {
         tree.map(async (n) => {
           if (!(await checkPermission(user.id, n.path, "read"))) return null;
           const lock = locks.get(n.path);
-          const isReadOnly = lock !== undefined && lock.deviceId !== user.deviceId;
+          const isReadOnly = lock !== undefined &&
+            lock.deviceId !== user.deviceId;
           return { ...n, isReadOnly };
-        })
+        }),
       );
       const filtered = checks.filter(
-        (n): n is (typeof tree)[number] & { isReadOnly: boolean } => n !== null
+        (n): n is (typeof tree)[number] & { isReadOnly: boolean } => n !== null,
       );
       return c.json(filtered);
     } catch (e) {
@@ -185,7 +186,7 @@ export function registerFileRoutes(app: Hono<Env>) {
           size: stat.size,
           lastModified: stat.lastModified,
         },
-        200
+        200,
       );
     } catch (e) {
       if (e instanceof FileServiceError) {

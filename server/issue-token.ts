@@ -1,5 +1,5 @@
 import { createAppToken } from "./src/services/auth.service.ts";
-import { getKv, closeKv } from "./src/kv/store.ts";
+import { closeKv, getKv } from "./src/kv/store.ts";
 import { Keys } from "./src/kv/keys.ts";
 
 const kv = await getKv();

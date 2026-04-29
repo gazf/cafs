@@ -6,7 +6,8 @@
   },
   "imports": {
     "hono": "jsr:@hono/hono@^4",
-    "@hono/hono": "jsr:@hono/hono@^4"
+    "@hono/hono": "jsr:@hono/hono@^4",
+    "@std/path": "jsr:@std/path@^1"
   },
   "compilerOptions": {
     "strict": true

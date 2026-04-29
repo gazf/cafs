@@ -7,7 +7,7 @@ export const errorHandler = createMiddleware(async (c, next) => {
     console.error("Unhandled error:", e);
     return c.json(
       { message: e instanceof Error ? e.message : "Internal server error" },
-      500
+      500,
     );
   }
 });

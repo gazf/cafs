@@ -1,8 +1,8 @@
 import { createMiddleware } from "@hono/hono/factory";
 import {
+  type AuthUser,
   upsertDevice,
   validateToken,
-  type AuthUser,
 } from "../services/auth.service.ts";
 
 type Env = {

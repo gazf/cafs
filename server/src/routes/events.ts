@@ -46,7 +46,8 @@ export function registerEventRoutes(app: Hono<Env>) {
             if (socket.readyState !== WebSocket.OPEN) break;
 
             for (const p of event.paths) {
-              const rel = "/" + p.slice(root.length).replace(/\\/g, "/").replace(/^\/+/, "");
+              const rel = "/" +
+                p.slice(root.length).replace(/\\/g, "/").replace(/^\/+/, "");
               if (!rel || rel === "/") continue;
 
               // 認可フィルタ: read 権限がなければ配信しない (パス・サイズ・更新時刻の漏洩を防ぐ)。
@@ -88,22 +89,36 @@ export function registerEventRoutes(app: Hono<Env>) {
 
       if (msg.deviceId !== user.deviceId) {
         console.log(
-          `[wss] message rejected (deviceId mismatch): expected=${user.deviceId.slice(0, 8)} got=${(msg.deviceId ?? "").slice(0, 8)} type=${msg.type}`,
+          `[wss] message rejected (deviceId mismatch): expected=${
+            user.deviceId.slice(0, 8)
+          } got=${(msg.deviceId ?? "").slice(0, 8)} type=${msg.type}`,
         );
         return;
       }
 
       if (msg.type === "heartbeat") {
-        console.log(`[wss] heartbeat from deviceId=${user.deviceId.slice(0, 8)}`);
+        console.log(
+          `[wss] heartbeat from deviceId=${user.deviceId.slice(0, 8)}`,
+        );
         refreshDeviceLocks(user.deviceId).then((n) => {
-          if (n > 0) console.log(`[wss] refreshed ${n} lock(s) for ${user.deviceId.slice(0, 8)}`);
+          if (n > 0) {
+            console.log(
+              `[wss] refreshed ${n} lock(s) for ${user.deviceId.slice(0, 8)}`,
+            );
+          }
         }).catch((err) => {
           console.error("refreshDeviceLocks failed:", err);
         });
       } else if (msg.type === "terminate") {
-        console.log(`[wss] terminate from deviceId=${user.deviceId.slice(0, 8)}`);
+        console.log(
+          `[wss] terminate from deviceId=${user.deviceId.slice(0, 8)}`,
+        );
         releaseDeviceLocks(user.deviceId).then((n) => {
-          console.log(`[wss] terminate released ${n} lock(s) for ${user.deviceId.slice(0, 8)}`);
+          console.log(
+            `[wss] terminate released ${n} lock(s) for ${
+              user.deviceId.slice(0, 8)
+            }`,
+          );
         }).catch((err) => {
           console.error("releaseDeviceLocks failed:", err);
         });
@@ -111,7 +126,9 @@ export function registerEventRoutes(app: Hono<Env>) {
     };
 
     const cleanup = () => {
-      try { watcher.close(); } catch { /* already closed */ }
+      try {
+        watcher.close();
+      } catch { /* already closed */ }
       unregisterSocket(peer);
     };
     socket.onclose = cleanup;

@@ -7,7 +7,7 @@ export async function getKv(): Promise<Deno.Kv> {
   return kv;
 }
 
-export async function closeKv(): Promise<void> {
+export function closeKv(): void {
   if (kv) {
     kv.close();
     kv = null;

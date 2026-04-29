@@ -1,11 +1,11 @@
 import { getKv } from "../kv/store.ts";
 import { Keys } from "../kv/keys.ts";
 import type {
-  TokenData,
-  User,
-  Permission,
   AccessLevel,
   DeviceData,
+  Permission,
+  TokenData,
+  User,
 } from "../types.ts";
 
 async function sha256(input: string): Promise<string> {
@@ -44,18 +44,18 @@ export async function upsertDevice(
 
   const device: DeviceData = existing.value
     ? {
-        ...existing.value,
-        userId,
-        lastSeenAt: now,
-        ipAddress,
-      }
+      ...existing.value,
+      userId,
+      lastSeenAt: now,
+      ipAddress,
+    }
     : {
-        deviceId,
-        userId,
-        firstSeenAt: now,
-        lastSeenAt: now,
-        ipAddress,
-      };
+      deviceId,
+      userId,
+      firstSeenAt: now,
+      lastSeenAt: now,
+      ipAddress,
+    };
 
   await kv
     .atomic()
@@ -65,7 +65,7 @@ export async function upsertDevice(
 }
 
 export async function validateToken(
-  rawToken: string
+  rawToken: string,
 ): Promise<TokenIdentity | null> {
   const kv = await getKv();
   const tokenHash = await hashToken(rawToken);
@@ -88,7 +88,7 @@ export async function validateToken(
 export async function createAppToken(
   userId: number,
   name: string,
-  expiresInDays: number = 365
+  expiresInDays: number = 365,
 ): Promise<{ raw: string; hash: string }> {
   const kv = await getKv();
   const raw = generateToken();
@@ -98,7 +98,7 @@ export async function createAppToken(
     userId,
     name,
     expiresAt: new Date(
-      Date.now() + expiresInDays * 24 * 60 * 60 * 1000
+      Date.now() + expiresInDays * 24 * 60 * 60 * 1000,
     ).toISOString(),
     createdAt: new Date().toISOString(),
   };
@@ -127,7 +127,7 @@ async function getUserGroupIds(userId: number): Promise<number[]> {
 export async function checkPermission(
   userId: number,
   path: string,
-  requiredLevel: "read" | "write"
+  requiredLevel: "read" | "write",
 ): Promise<boolean> {
   const groupIds = await getUserGroupIds(userId);
   if (groupIds.length === 0) return false;
@@ -148,7 +148,7 @@ export async function checkPermission(
     const checkPath = pathsToCheck[i];
     for (const groupId of groupIds) {
       const perm = await kv.get<Permission>(
-        Keys.permission(checkPath, groupId)
+        Keys.permission(checkPath, groupId),
       );
       if (perm.value) {
         return hasAccess(perm.value.accessLevel, requiredLevel);

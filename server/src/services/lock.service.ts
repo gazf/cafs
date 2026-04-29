@@ -17,7 +17,7 @@ export async function acquireLock(
   filePath: string,
   userId: number,
   deviceId: string,
-  timeoutMs: number = LOCK_TTL_MS
+  timeoutMs: number = LOCK_TTL_MS,
 ): Promise<LockResult> {
   const kv = await getKv();
   const key = Keys.lock(filePath);
@@ -72,7 +72,7 @@ export async function acquireLock(
 export async function releaseLock(
   filePath: string,
   userId: number,
-  deviceId: string
+  deviceId: string,
 ): Promise<boolean> {
   const kv = await getKv();
   const key = Keys.lock(filePath);
@@ -170,7 +170,7 @@ export async function getAllLocks(): Promise<Map<string, LockData>> {
 
 export async function isLockedByOther(
   filePath: string,
-  userId: number
+  userId: number,
 ): Promise<boolean> {
   const lock = await getLock(filePath);
   return lock !== null && lock.userId !== userId;

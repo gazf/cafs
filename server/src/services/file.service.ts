@@ -1,8 +1,7 @@
-import * as path from "https://deno.land/std@0.224.0/path/mod.ts";
+import * as path from "@std/path";
 import type { FileEntry } from "../types.ts";
 
-const STORAGE_ROOT =
-  Deno.env.get("CAFS_STORAGE_ROOT") ??
+const STORAGE_ROOT = Deno.env.get("CAFS_STORAGE_ROOT") ??
   path.join(Deno.cwd(), "storage");
 
 function resolveAndValidate(relativePath: string): string {
@@ -15,10 +14,15 @@ function resolveAndValidate(relativePath: string): string {
   const stripped = relativePath.replace(/^\/+/, "");
 
   // Normalize and resolve
-  const normalized = stripped ? path.normalize(stripped).replace(/\\/g, "/") : ".";
+  const normalized = stripped
+    ? path.normalize(stripped).replace(/\\/g, "/")
+    : ".";
 
   // Reject path traversal
-  if (normalized.startsWith("..") || normalized.includes("/../") || normalized.endsWith("/..")) {
+  if (
+    normalized.startsWith("..") || normalized.includes("/../") ||
+    normalized.endsWith("/..")
+  ) {
     throw new FileServiceError("Invalid path", 400);
   }
 
@@ -36,14 +40,14 @@ function resolveAndValidate(relativePath: string): string {
 export class FileServiceError extends Error {
   constructor(
     message: string,
-    public statusCode: number
+    public statusCode: number,
   ) {
     super(message);
   }
 }
 
 export async function listDirectory(
-  relativePath: string
+  relativePath: string,
 ): Promise<FileEntry[]> {
   const fullPath = resolveAndValidate(relativePath);
   const entries: FileEntry[] = [];
@@ -87,7 +91,7 @@ export async function statFile(relativePath: string): Promise<FileStat> {
 }
 
 export async function getFileInfo(
-  relativePath: string
+  relativePath: string,
 ): Promise<FileEntry> {
   const fullPath = resolveAndValidate(relativePath);
 
@@ -111,7 +115,7 @@ export async function getFileInfo(
 export async function readFile(
   relativePath: string,
   offset?: number,
-  length?: number
+  length?: number,
 ): Promise<{ stream: ReadableStream<Uint8Array>; size: number }> {
   const fullPath = resolveAndValidate(relativePath);
 
@@ -171,7 +175,7 @@ export async function readFile(
 
 export async function writeFile(
   relativePath: string,
-  body: ReadableStream<Uint8Array>
+  body: ReadableStream<Uint8Array>,
 ): Promise<void> {
   const fullPath = resolveAndValidate(relativePath);
 
@@ -232,7 +236,9 @@ export async function getTree(): Promise<TreeEntry[]> {
   async function walk(relPath: string): Promise<void> {
     const entries = await listDirectory(relPath);
     for (const entry of entries) {
-      const entryPath = relPath === "/" ? `/${entry.name}` : `${relPath}/${entry.name}`;
+      const entryPath = relPath === "/"
+        ? `/${entry.name}`
+        : `${relPath}/${entry.name}`;
       results.push({ ...entry, path: entryPath });
       if (entry.type === "directory") {
         await walk(entryPath);
