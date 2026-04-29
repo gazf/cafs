@@ -42,6 +42,8 @@ public sealed class HttpEventStream : IEventStream
     {
         var buffer = new byte[8192];
 
+        System.Diagnostics.Trace.WriteLine($"WSS recv loop: starting, ws.State={_ws.State}");
+
         while (!ct.IsCancellationRequested && _ws.State == WebSocketState.Open)
         {
             WebSocketReceiveResult result;
@@ -51,21 +53,24 @@ public sealed class HttpEventStream : IEventStream
             }
             catch (OperationCanceledException)
             {
+                System.Diagnostics.Trace.WriteLine("WSS recv loop: canceled");
                 yield break;
             }
+
+            System.Diagnostics.Trace.WriteLine(
+                $"WSS recv: type={result.MessageType} count={result.Count} eom={result.EndOfMessage}");
 
             if (result.MessageType == WebSocketMessageType.Close)
                 yield break;
 
             if (result.MessageType != WebSocketMessageType.Text)
             {
-                System.Diagnostics.Trace.WriteLine($"WSS recv: skipping non-text frame ({result.MessageType}, {result.Count} bytes)");
+                System.Diagnostics.Trace.WriteLine($"WSS recv: skipping non-text frame");
                 continue;
             }
 
             var json = Encoding.UTF8.GetString(buffer, 0, result.Count);
-            // 観測ログ: 何が届いているかを必ず残す。
-            System.Diagnostics.Trace.WriteLine($"WSS recv: {json}");
+            System.Diagnostics.Trace.WriteLine($"WSS recv json: {json}");
 
             ServerEvent? evt;
             try
@@ -84,8 +89,12 @@ public sealed class HttpEventStream : IEventStream
                 continue;
             }
 
+            System.Diagnostics.Trace.WriteLine(
+                $"WSS recv: yielding event={evt.Event} path={evt.Path}");
             yield return evt;
         }
+
+        System.Diagnostics.Trace.WriteLine($"WSS recv loop: exited (ws.State={_ws.State}, ct.Cancelled={ct.IsCancellationRequested})");
     }
 
     /// <summary>
