@@ -5,27 +5,15 @@ using Cafs.Core.Models;
 
 namespace Cafs.Transport;
 
-public class CafsApiException : Exception
+public class CafsApiException(string message, int statusCode) : Exception(message)
 {
-    public int StatusCode { get; }
-
-    public CafsApiException(string message, int statusCode)
-        : base(message)
-    {
-        StatusCode = statusCode;
-    }
+    public int StatusCode { get; } = statusCode;
 }
 
-public class HttpCafsServer : ICafsServer, IDisposable
+public class HttpCafsServer(HttpClient http, string baseUrl) : ICafsServer, IDisposable
 {
-    private readonly HttpClient _http;
-    private readonly string _baseUrl;
-
-    public HttpCafsServer(HttpClient http, string baseUrl)
-    {
-        _http = http;
-        _baseUrl = baseUrl.TrimEnd('/');
-    }
+    private readonly HttpClient _http = http;
+    private readonly string _baseUrl = baseUrl.TrimEnd('/');
 
     public async Task<IReadOnlyList<TreeNode>> GetTreeAsync(CancellationToken ct = default)
     {
