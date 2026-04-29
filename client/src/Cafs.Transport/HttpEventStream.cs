@@ -42,37 +42,24 @@ public sealed class HttpEventStream : IEventStream
     {
         var buffer = new byte[8192];
 
-        System.Diagnostics.Trace.WriteLine($"WSS recv loop: starting, ws.State={_ws.State}");
-
         while (!ct.IsCancellationRequested && _ws.State == WebSocketState.Open)
         {
             WebSocketReceiveResult result;
             try
             {
                 // ConfigureAwait(false): UI sync context にコールバックを post しない。
-                // RunHeartbeatAsync が UI スレッドを掴んでいた頃の経緯で、念のため明示。
+                // 受信継続が UI スレッドに依存しないようにする (heartbeat 同期ブロッキング時代の名残対策)。
                 result = await _ws.ReceiveAsync(buffer, ct).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
-                System.Diagnostics.Trace.WriteLine("WSS recv loop: canceled");
                 yield break;
             }
 
-            System.Diagnostics.Trace.WriteLine(
-                $"WSS recv: type={result.MessageType} count={result.Count} eom={result.EndOfMessage}");
-
-            if (result.MessageType == WebSocketMessageType.Close)
-                yield break;
-
-            if (result.MessageType != WebSocketMessageType.Text)
-            {
-                System.Diagnostics.Trace.WriteLine($"WSS recv: skipping non-text frame");
-                continue;
-            }
+            if (result.MessageType == WebSocketMessageType.Close) yield break;
+            if (result.MessageType != WebSocketMessageType.Text) continue;
 
             var json = Encoding.UTF8.GetString(buffer, 0, result.Count);
-            System.Diagnostics.Trace.WriteLine($"WSS recv json: {json}");
 
             ServerEvent? evt;
             try
@@ -81,22 +68,14 @@ public sealed class HttpEventStream : IEventStream
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Trace.WriteLine($"WSS recv: deserialize failed: {ex.Message}");
+                System.Diagnostics.Trace.WriteLine($"WSS recv: deserialize failed: {ex.Message} json={json}");
                 continue;
             }
 
-            if (evt is null)
-            {
-                System.Diagnostics.Trace.WriteLine("WSS recv: deserialize returned null");
-                continue;
-            }
+            if (evt is null) continue;
 
-            System.Diagnostics.Trace.WriteLine(
-                $"WSS recv: yielding event={evt.Event} path={evt.Path}");
             yield return evt;
         }
-
-        System.Diagnostics.Trace.WriteLine($"WSS recv loop: exited (ws.State={_ws.State}, ct.Cancelled={ct.IsCancellationRequested})");
     }
 
     /// <summary>
