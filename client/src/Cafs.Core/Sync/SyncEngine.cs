@@ -10,12 +10,14 @@ public class SyncEngine
     private readonly ICafsServer _server;
     private readonly SyncProvider _syncProvider;
     private readonly string _syncRootPath;
+    private readonly string _deviceId;
 
-    public SyncEngine(ICafsServer server, SyncProvider syncProvider, string syncRootPath)
+    public SyncEngine(ICafsServer server, SyncProvider syncProvider, string syncRootPath, string deviceId)
     {
         _server = server;
         _syncProvider = syncProvider;
         _syncRootPath = syncRootPath;
+        _deviceId = deviceId;
     }
 
     public async Task FullSyncAsync(CancellationToken ct = default)
@@ -44,7 +46,16 @@ public class SyncEngine
 
             // 各ファイルの「最後に同期した時刻」を記録 (close 時の modify 検出に使う)
             foreach (var child in children.Where(c => !c.IsDirectory))
+            {
                 _syncProvider.RecordSyncedWriteTime(child.Path, child.LastModified);
+
+                // ADR-019: /tree が伝える isReadOnly (= 他 device がロック中) を NTFS 属性に反映
+                if (child.IsReadOnly)
+                {
+                    var localPath = ToLocalPath(child.Path);
+                    LocalAttributes.SetReadOnly(localPath, readOnly: true);
+                }
+            }
 
             // CreatePlaceholders だけでは Explorer のビューが再列挙されない。
             // ディレクトリ単位で SHCNE_UPDATEDIR を打って、開いているビューに反映させる。
@@ -118,11 +129,27 @@ public class SyncEngine
 
             case "lock_acquired":
             case "lock_released":
-                // ADR-019 (Step 5) で File.SetAttributes による RO 反映を実装する。
-                // Step 3 では受信できることを確認するためログのみ。
+            {
+                // ADR-019: 他 device によるロック取得・解放を NTFS の RO 属性に反映する。
+                // 自端末が holder の場合は属性を変更しない (自分の編集まで RO にしてしまう)。
+                if (evt.Holder is null) break;
+                if (IsSelfDevice(evt.Holder.DeviceId)) break;
+
+                var localPath = ToLocalPath(evt.Path);
+                var readOnly = evt.Event == "lock_acquired";
+                LocalAttributes.SetReadOnly(localPath, readOnly);
                 break;
+            }
         }
     }
+
+    /// <summary>
+    /// ADR-019: 自端末の Device ID と holder.deviceId が一致するかを判定する。
+    /// 一致時は属性を変更しない (自分が取り戻したロックで自分のローカルを RO に
+    /// してしまわないため)。
+    /// </summary>
+    private bool IsSelfDevice(string deviceId)
+        => string.Equals(deviceId, _deviceId, StringComparison.Ordinal);
 
     private string ToLocalPath(string serverPath) =>
         serverPath == "/"

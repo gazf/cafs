@@ -55,7 +55,7 @@ public class HttpCafsServer : ICafsServer, IDisposable
             ?? throw new CafsApiException("Failed to parse response", 500);
     }
 
-    public async Task<Stream> DownloadFileAsync(string path, long offset = 0, long length = -1, CancellationToken ct = default)
+    public async Task<HydratedContent> DownloadFileAsync(string path, long offset = 0, long length = -1, CancellationToken ct = default)
     {
         var url = $"{_baseUrl}/content{NormalizePath(path)}";
         var request = new HttpRequestMessage(HttpMethod.Get, url);
@@ -68,7 +68,29 @@ public class HttpCafsServer : ICafsServer, IDisposable
 
         var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
         await EnsureSuccess(response, ct);
-        return await response.Content.ReadAsStreamAsync(ct);
+
+        var attributes = ParseFileAttributes(response);
+        var stream = await response.Content.ReadAsStreamAsync(ct);
+        return new HydratedContent(stream, attributes);
+    }
+
+    private static FileAttributes ParseFileAttributes(HttpResponseMessage response)
+    {
+        // ADR-019: X-File-Attributes はカンマ区切り (ReadOnly, Hidden, ...)。
+        // 未知の値は無視。空 / 欠如時は属性なし (0)。
+        if (!response.Headers.TryGetValues("X-File-Attributes", out var values))
+            return 0;
+
+        FileAttributes result = 0;
+        foreach (var raw in values)
+        {
+            foreach (var token in raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                if (Enum.TryParse<FileAttributes>(token, ignoreCase: true, out var attr))
+                    result |= attr;
+            }
+        }
+        return result;
     }
 
     public async Task<UploadResult> UploadFileAsync(string path, Stream content, CancellationToken ct = default)

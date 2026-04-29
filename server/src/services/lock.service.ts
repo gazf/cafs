@@ -153,6 +153,21 @@ export async function getLock(filePath: string): Promise<LockData | null> {
   return entry.value ?? null;
 }
 
+/**
+ * ADR-019: /tree 用に全ロックをまとめて取得する (N+1 回避)。
+ * Map<path, LockData> を返す。
+ */
+export async function getAllLocks(): Promise<Map<string, LockData>> {
+  const kv = await getKv();
+  const result = new Map<string, LockData>();
+  const iter = kv.list<LockData>({ prefix: ["locks"] });
+  for await (const entry of iter) {
+    const path = entry.key[1] as string;
+    if (entry.value) result.set(path, entry.value);
+  }
+  return result;
+}
+
 export async function isLockedByOther(
   filePath: string,
   userId: number

@@ -10,7 +10,11 @@ import {
   FileServiceError,
 } from "../services/file.service.ts";
 import { checkPermission } from "../services/auth.service.ts";
-import { isLockedByOther } from "../services/lock.service.ts";
+import {
+  getAllLocks,
+  getLock,
+  isLockedByOther,
+} from "../services/lock.service.ts";
 import type { AuthUser } from "../services/auth.service.ts";
 
 type Env = {
@@ -25,14 +29,18 @@ export function registerFileRoutes(app: Hono<Env>) {
     const user = c.get("user");
     try {
       const tree = await getTree();
-      // 各ノードを read 権限でフィルタ。並列に判定して結果を保つ。
+      const locks = await getAllLocks();
+      // 各ノードを read 権限でフィルタ + ADR-019 isReadOnly 合成 (他 device がロック中)。
       const checks = await Promise.all(
-        tree.map(async (n) =>
-          (await checkPermission(user.id, n.path, "read")) ? n : null
-        )
+        tree.map(async (n) => {
+          if (!(await checkPermission(user.id, n.path, "read"))) return null;
+          const lock = locks.get(n.path);
+          const isReadOnly = lock !== undefined && lock.deviceId !== user.deviceId;
+          return { ...n, isReadOnly };
+        })
       );
       const filtered = checks.filter(
-        (n): n is (typeof tree)[number] => n !== null
+        (n): n is (typeof tree)[number] & { isReadOnly: boolean } => n !== null
       );
       return c.json(filtered);
     } catch (e) {
@@ -124,6 +132,13 @@ export function registerFileRoutes(app: Hono<Env>) {
       const headers: Record<string, string> = {
         "Content-Type": "application/octet-stream",
       };
+
+      // ADR-019: 他 device が保持するロックなら ReadOnly 属性を伝達する。
+      // クライアントは File.SetAttributes でローカル NTFS の MFT に反映する。
+      const lock = await getLock(filePath);
+      if (lock && lock.deviceId !== user.deviceId) {
+        headers["X-File-Attributes"] = "ReadOnly";
+      }
 
       if (rangeHeader && offset !== undefined) {
         const end = length ? offset + length - 1 : size - 1;

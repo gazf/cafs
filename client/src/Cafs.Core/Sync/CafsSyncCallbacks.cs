@@ -25,25 +25,33 @@ public sealed class CafsSyncCallbacks : ISyncCallbacks
     public async Task HydrateAsync(
         string relativePath, long offset, long length, DataTransfer transfer, CancellationToken ct)
     {
-        using var stream = await _server.DownloadFileAsync(relativePath, offset, length, ct).ConfigureAwait(false);
-
-        var buffer = ArrayPool<byte>.Shared.Rent(HydrateChunkSize);
-        try
+        var hydrated = await _server.DownloadFileAsync(relativePath, offset, length, ct).ConfigureAwait(false);
+        await using (hydrated)
         {
-            long currentOffset = offset;
-            while (!ct.IsCancellationRequested)
+            var buffer = ArrayPool<byte>.Shared.Rent(HydrateChunkSize);
+            try
             {
-                var bytesRead = await stream.ReadAsync(buffer.AsMemory(0, HydrateChunkSize), ct).ConfigureAwait(false);
-                if (bytesRead == 0) break;
+                long currentOffset = offset;
+                while (!ct.IsCancellationRequested)
+                {
+                    var bytesRead = await hydrated.Content.ReadAsync(buffer.AsMemory(0, HydrateChunkSize), ct).ConfigureAwait(false);
+                    if (bytesRead == 0) break;
 
-                transfer.Write(buffer.AsSpan(0, bytesRead), currentOffset);
-                currentOffset += bytesRead;
+                    transfer.Write(buffer.AsSpan(0, bytesRead), currentOffset);
+                    currentOffset += bytesRead;
+                }
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
             }
         }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(buffer);
-        }
+
+        // ADR-019: hydrate 後、サーバが伝達した属性 (ReadOnly 等) を NTFS の MFT に反映。
+        var localPath = Path.Combine(
+            _syncRootPath,
+            relativePath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+        LocalAttributes.SetReadOnly(localPath, hydrated.IsReadOnly);
     }
 
     /// <summary>
@@ -56,7 +64,17 @@ public sealed class CafsSyncCallbacks : ISyncCallbacks
         {
             var lockInfo = await _server.AcquireLockAsync(relativePath, ct).ConfigureAwait(false);
             if (lockInfo is null)
+            {
                 Trace.WriteLine($"FileOpen: lock denied (held by other): {relativePath}");
+                return;
+            }
+
+            // 取得成功 → 自端末がホルダーなので RO を外す。WSS 取りこぼしで RO が
+            // 残っていた場合の救済 (ADR-019)。
+            var localPath = Path.Combine(
+                _syncRootPath,
+                relativePath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+            LocalAttributes.SetReadOnly(localPath, readOnly: false);
         }
         catch (Exception ex)
         {

@@ -94,7 +94,7 @@ public sealed class TrayAppContext : ApplicationContext
 
             // ALWAYS_FULL: create all placeholders before connecting,
             // so Explorer never sees an empty directory.
-            _syncEngine = new SyncEngine(_server, _syncProvider, _settings.SyncRootPath);
+            _syncEngine = new SyncEngine(_server, _syncProvider, _settings.SyncRootPath, _deviceId);
             SetStatus("Syncing...");
             await _syncEngine.FullSyncAsync();
 
@@ -262,7 +262,7 @@ public sealed class TrayAppContext : ApplicationContext
             _syncProvider = new SyncProvider(path, callbacks);
             _syncProvider.Connect();
 
-            _syncEngine = new SyncEngine(_server!, _syncProvider, path);
+            _syncEngine = new SyncEngine(_server!, _syncProvider, path, _deviceId!);
             await _syncEngine.FullSyncAsync();
 
             _eventLoopCts = new CancellationTokenSource();
