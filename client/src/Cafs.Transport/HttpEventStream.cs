@@ -57,10 +57,34 @@ public sealed class HttpEventStream : IEventStream
             if (result.MessageType == WebSocketMessageType.Close)
                 yield break;
 
+            if (result.MessageType != WebSocketMessageType.Text)
+            {
+                System.Diagnostics.Trace.WriteLine($"WSS recv: skipping non-text frame ({result.MessageType}, {result.Count} bytes)");
+                continue;
+            }
+
             var json = Encoding.UTF8.GetString(buffer, 0, result.Count);
-            var evt = JsonSerializer.Deserialize<ServerEvent>(json);
-            if (evt is not null)
-                yield return evt;
+            // 観測ログ: 何が届いているかを必ず残す。
+            System.Diagnostics.Trace.WriteLine($"WSS recv: {json}");
+
+            ServerEvent? evt;
+            try
+            {
+                evt = JsonSerializer.Deserialize<ServerEvent>(json);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"WSS recv: deserialize failed: {ex.Message}");
+                continue;
+            }
+
+            if (evt is null)
+            {
+                System.Diagnostics.Trace.WriteLine("WSS recv: deserialize returned null");
+                continue;
+            }
+
+            yield return evt;
         }
     }
 
