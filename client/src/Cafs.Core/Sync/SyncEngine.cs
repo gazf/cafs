@@ -115,6 +115,12 @@ public class SyncEngine
                 Shell.NotifyDelete(localPath, wasDirectory);
                 break;
             }
+
+            case "lock_acquired":
+            case "lock_released":
+                // ADR-019 (Step 5) で File.SetAttributes による RO 反映を実装する。
+                // Step 3 では受信できることを確認するためログのみ。
+                break;
         }
     }
 

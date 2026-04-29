@@ -1,5 +1,6 @@
 import { getKv } from "../kv/store.ts";
 import { Keys } from "../kv/keys.ts";
+import { broadcastLockEvent } from "./wsBroadcast.service.ts";
 import type { LockData } from "../types.ts";
 
 // ADR-018: Liveness 管理は WSS heartbeat による KV expireIn の延長で行う。
@@ -58,6 +59,13 @@ export async function acquireLock(
     return { success: false, message: "Conflict" };
   }
 
+  // 新規取得 / 取り戻しのみ broadcast (renew は broadcast しない)
+  if (!existing.value || existing.value.deviceId !== deviceId) {
+    broadcastLockEvent("lock_acquired", filePath, { userId, deviceId }).catch(
+      (err) => console.error("broadcastLockEvent acquired failed:", err),
+    );
+  }
+
   return { success: true, lock };
 }
 
@@ -85,7 +93,57 @@ export async function releaseLock(
   }
 
   const result = await tx.commit();
+
+  if (result.ok) {
+    broadcastLockEvent("lock_released", filePath, {
+      userId,
+      deviceId: existing.value.deviceId,
+    }).catch((err) =>
+      console.error("broadcastLockEvent released failed:", err)
+    );
+  }
+
   return result.ok;
+}
+
+/**
+ * ADR-018 Step 3: terminate / 異常切断時に呼ぶ。当該 device が保持する全ロックを
+ * 一括解除し、それぞれ lock_released を broadcast する。
+ */
+export async function releaseDeviceLocks(deviceId: string): Promise<number> {
+  const kv = await getKv();
+  let released = 0;
+  const iter = kv.list({ prefix: Keys.deviceLocksPrefix(deviceId) });
+
+  for await (const entry of iter) {
+    const path = entry.key[2] as string;
+    const lockEntry = await kv.get<LockData>(Keys.lock(path));
+
+    if (!lockEntry.value || lockEntry.value.deviceId !== deviceId) {
+      // 残骸の逆引きを掃除
+      await kv.delete(entry.key);
+      continue;
+    }
+
+    const tx = await kv
+      .atomic()
+      .check(lockEntry)
+      .delete(Keys.lock(path))
+      .delete(entry.key)
+      .commit();
+
+    if (tx.ok) {
+      released++;
+      broadcastLockEvent("lock_released", path, {
+        userId: lockEntry.value.userId,
+        deviceId,
+      }).catch((err) =>
+        console.error("broadcastLockEvent released (bulk) failed:", err)
+      );
+    }
+  }
+
+  return released;
 }
 
 export async function getLock(filePath: string): Promise<LockData | null> {

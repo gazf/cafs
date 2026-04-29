@@ -291,8 +291,16 @@ public sealed class TrayAppContext : ApplicationContext
             _eventLoopCts?.Cancel();
             _eventLoopCts?.Dispose();
             _eventLoopCts = null;
-            _ = _eventStream?.DisposeAsync().AsTask();
-            _eventStream = null;
+
+            // ADR-018 Step 3: WSS dispose で terminate メッセージを送信。
+            // プロセス終了前に届くよう短時間ブロックする (送信失敗時は KV TTL 30s に委ねる)。
+            if (_eventStream is not null)
+            {
+                try { _eventStream.DisposeAsync().AsTask().Wait(TimeSpan.FromSeconds(2)); }
+                catch { /* best-effort */ }
+                _eventStream = null;
+            }
+
             _syncProvider?.Disconnect();
             _syncProvider?.Dispose();
             _server?.Dispose();

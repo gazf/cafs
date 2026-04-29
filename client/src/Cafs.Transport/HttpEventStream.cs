@@ -94,6 +94,21 @@ public sealed class HttpEventStream : IEventStream
         _disposed = true;
         if (_ws.State == WebSocketState.Open)
         {
+            // ADR-018 Step 3: グレースフル終了は terminate 送信 → サーバ側で当該
+            // device の全ロックを即時解除する (TTL 30 秒待ちを回避)。
+            try
+            {
+                var payload = $"{{\"type\":\"terminate\",\"deviceId\":\"{_deviceId}\"}}";
+                var bytes = Encoding.UTF8.GetBytes(payload);
+                await _sendLock.WaitAsync(CancellationToken.None);
+                try
+                {
+                    await _ws.SendAsync(bytes, WebSocketMessageType.Text, true, CancellationToken.None);
+                }
+                finally { _sendLock.Release(); }
+            }
+            catch { /* best-effort */ }
+
             try { await _ws.CloseAsync(WebSocketCloseStatus.NormalClosure, null, CancellationToken.None); }
             catch { /* ignore shutdown errors */ }
         }
