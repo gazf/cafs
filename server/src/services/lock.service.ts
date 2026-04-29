@@ -102,3 +102,49 @@ export async function isLockedByOther(
   const lock = await getLock(filePath);
   return lock !== null && lock.userId !== userId;
 }
+
+/**
+ * ADR-018 Step 2: WSS heartbeat 受信時に呼び出される。
+ * device_locks 逆引きインデックスから当該 device が保持する全ロックを列挙し、
+ * 各ロックの TTL を再設定する (Deno KV の expireIn は set 時のみ反映されるので、
+ * 同じ値で再 set することで TTL がリフレッシュされる)。
+ */
+export async function refreshDeviceLocks(deviceId: string): Promise<number> {
+  const kv = await getKv();
+  let refreshed = 0;
+  const iter = kv.list({ prefix: Keys.deviceLocksPrefix(deviceId) });
+
+  for await (const entry of iter) {
+    const path = entry.key[2] as string;
+    const lockEntry = await kv.get<LockData>(Keys.lock(path));
+
+    if (!lockEntry.value) {
+      // 既に他端末が取り戻している、または expire 済み → 逆引きを掃除
+      await kv.delete(entry.key);
+      continue;
+    }
+
+    if (lockEntry.value.deviceId !== deviceId) {
+      // 同一ユーザー別端末で取り戻しが起きた後の残骸 → 掃除
+      await kv.delete(entry.key);
+      continue;
+    }
+
+    // expiresAt も延長して整合性を保つ
+    const refreshedLock: LockData = {
+      ...lockEntry.value,
+      expiresAt: new Date(Date.now() + LOCK_TTL_MS).toISOString(),
+    };
+
+    const tx = await kv
+      .atomic()
+      .check(lockEntry)
+      .set(Keys.lock(path), refreshedLock, { expireIn: LOCK_TTL_MS })
+      .set(Keys.deviceLock(deviceId, path), null, { expireIn: LOCK_TTL_MS })
+      .commit();
+
+    if (tx.ok) refreshed++;
+  }
+
+  return refreshed;
+}

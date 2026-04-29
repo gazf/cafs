@@ -10,12 +10,6 @@ public sealed class CafsSyncCallbacks : ISyncCallbacks
 {
     private const int HydrateChunkSize = 65_536;
 
-    /// <summary>
-    /// アップロード中のロック renew 周期。サーバ側 lock TTL (30 秒、ADR-018) より
-    /// 短くして 1 回分の猶予を残す。Step 2 で WSS heartbeat に集約されるまでの暫定。
-    /// </summary>
-    private static readonly TimeSpan LockHeartbeatInterval = TimeSpan.FromSeconds(10);
-
     /// <summary>STATUS_ACCESS_DENIED — placeholder の delete を拒否する時に返す。</summary>
     private const int StatusAccessDenied = unchecked((int)0xC0000022);
 
@@ -106,21 +100,11 @@ public sealed class CafsSyncCallbacks : ISyncCallbacks
                 handle.SetInSyncState(false);
             }
 
-            // (4) heartbeat 開始 → upload (この時点でファイルはロックされていないので File.OpenRead が通る)
+            // (4) upload (ロック延長は WSS heartbeat に委譲、ADR-018 Step 2)
             UploadResult uploadResult;
-            using (var heartbeatCts = CancellationTokenSource.CreateLinkedTokenSource(ct))
             {
-                var heartbeat = StartLockHeartbeat(relativePath, heartbeatCts.Token);
-                try
-                {
-                    await using var stream = File.OpenRead(localPath);
-                    uploadResult = await _server.UploadFileAsync(relativePath, stream, ct).ConfigureAwait(false);
-                }
-                finally
-                {
-                    heartbeatCts.Cancel();
-                    try { await heartbeat.ConfigureAwait(false); } catch { }
-                }
+                await using var stream = File.OpenRead(localPath);
+                uploadResult = await _server.UploadFileAsync(relativePath, stream, ct).ConfigureAwait(false);
             }
 
             // (5) placeholder メタデータ同期 + IN_SYNC マーク
@@ -177,32 +161,6 @@ public sealed class CafsSyncCallbacks : ISyncCallbacks
             return null;
         }
     }
-
-    /// <summary>
-    /// アップロード中、定期的に AcquireLock を呼ぶことで lock の expiresAt を延長する。
-    /// (サーバ側 acquireLock は同一ユーザー保持時に renew として動作する。)
-    /// 待ちは Task.Delay ではなく WaitHandle.WaitOne にして、キャンセル時に
-    /// OperationCanceledException を投げないようにする (first-chance 例外のノイズ削減)。
-    /// </summary>
-    private Task StartLockHeartbeat(string relativePath, CancellationToken ct) => Task.Run(async () =>
-    {
-        while (!ct.IsCancellationRequested)
-        {
-            // キャンセルされたら true 返り → 即抜ける。タイムアウトで false 返り → renew 実行。
-            if (ct.WaitHandle.WaitOne(LockHeartbeatInterval))
-                break;
-
-            try
-            {
-                await _server.AcquireLockAsync(relativePath, ct).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) { break; }
-            catch (Exception ex)
-            {
-                Trace.WriteLine($"Lock renew failed: {relativePath}: {ex.Message}");
-            }
-        }
-    }, CancellationToken.None);
 
     /// <summary>
     /// ロック取得失敗時、ローカルの変更を conflict file としてコピー保存する。

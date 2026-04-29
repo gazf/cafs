@@ -9,14 +9,25 @@ namespace Cafs.Transport;
 public sealed class HttpEventStream : IEventStream
 {
     private readonly ClientWebSocket _ws;
+    private readonly string _deviceId;
+    private readonly SemaphoreSlim _sendLock = new(1, 1);
     private bool _disposed;
 
-    private HttpEventStream(ClientWebSocket ws) => _ws = ws;
+    private HttpEventStream(ClientWebSocket ws, string deviceId)
+    {
+        _ws = ws;
+        _deviceId = deviceId;
+    }
 
-    public static async Task<HttpEventStream> ConnectAsync(string serverUrl, string bearerToken, CancellationToken ct = default)
+    public static async Task<HttpEventStream> ConnectAsync(
+        string serverUrl,
+        string bearerToken,
+        string deviceId,
+        CancellationToken ct = default)
     {
         var ws = new ClientWebSocket();
         ws.Options.SetRequestHeader("Authorization", $"Bearer {bearerToken}");
+        ws.Options.SetRequestHeader("X-Device-Id", deviceId);
 
         var wsUrl = serverUrl.TrimEnd('/')
             .Replace("https://", "wss://")
@@ -24,7 +35,7 @@ public sealed class HttpEventStream : IEventStream
             + "/events";
 
         await ws.ConnectAsync(new Uri(wsUrl), ct);
-        return new HttpEventStream(ws);
+        return new HttpEventStream(ws, deviceId);
     }
 
     public async IAsyncEnumerable<ServerEvent> ReadEventsAsync([EnumeratorCancellation] CancellationToken ct)
@@ -53,6 +64,30 @@ public sealed class HttpEventStream : IEventStream
         }
     }
 
+    /// <summary>
+    /// ADR-018 Step 2: SID/Device ID ハートビート。10 秒ごとに呼び出すことで、
+    /// サーバ側が当該 device の全ロックの TTL を 30 秒延長する。
+    /// 送信は ClientWebSocket への並行 send を避けるため SemaphoreSlim でガード。
+    /// </summary>
+    public async Task SendHeartbeatAsync(CancellationToken ct = default)
+    {
+        if (_ws.State != WebSocketState.Open) return;
+
+        var payload = $"{{\"type\":\"heartbeat\",\"deviceId\":\"{_deviceId}\"}}";
+        var bytes = Encoding.UTF8.GetBytes(payload);
+
+        await _sendLock.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await _ws.SendAsync(bytes, WebSocketMessageType.Text, endOfMessage: true, ct)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            _sendLock.Release();
+        }
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (_disposed) return;
@@ -63,5 +98,6 @@ public sealed class HttpEventStream : IEventStream
             catch { /* ignore shutdown errors */ }
         }
         _ws.Dispose();
+        _sendLock.Dispose();
     }
 }

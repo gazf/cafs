@@ -18,11 +18,14 @@ public sealed class TrayAppContext : ApplicationContext
     private const string ProviderVersion = "1.0";
     private static readonly Guid ProviderId = Guid.Parse("B5F2A9C1-4E7D-4A3B-8F6C-1D2E3F4A5B6C");
 
+    private static readonly TimeSpan WssHeartbeatInterval = TimeSpan.FromSeconds(10);
+
     private HttpCafsServer? _server;
     private SyncProvider? _syncProvider;
     private SyncEngine? _syncEngine;
     private HttpEventStream? _eventStream;
     private CancellationTokenSource? _eventLoopCts;
+    private string? _deviceId;
 
     private readonly ToolStripMenuItem _statusItem;
     private readonly ToolStripMenuItem _openItem;
@@ -75,11 +78,11 @@ public sealed class TrayAppContext : ApplicationContext
         try
         {
             SetStatus("Connecting...");
-            var deviceId = DeviceIdProvider.GetOrCreate();
+            _deviceId = DeviceIdProvider.GetOrCreate();
             var http = new HttpClient();
             http.DefaultRequestHeaders.Authorization =
                 new AuthenticationHeaderValue("Bearer", _settings.BearerToken);
-            http.DefaultRequestHeaders.Add("X-Device-Id", deviceId);
+            http.DefaultRequestHeaders.Add("X-Device-Id", _deviceId);
             _server = new HttpCafsServer(http, _settings.ServerUrl);
             Directory.CreateDirectory(_settings.SyncRootPath);
 
@@ -111,15 +114,29 @@ public sealed class TrayAppContext : ApplicationContext
 
     private async Task RunEventLoopWithReconnectAsync(CancellationToken ct)
     {
+        var deviceId = _deviceId
+            ?? throw new InvalidOperationException("Device ID not initialized");
+
         while (!ct.IsCancellationRequested)
         {
+            using var heartbeatCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             try
             {
-                var stream = await HttpEventStream.ConnectAsync(_settings.ServerUrl, _settings.BearerToken, ct);
+                var stream = await HttpEventStream.ConnectAsync(
+                    _settings.ServerUrl, _settings.BearerToken, deviceId, ct);
                 _eventStream = stream;
                 await using (stream)
                 {
-                    await _syncEngine!.RunEventLoopAsync(stream, ct);
+                    var heartbeat = RunHeartbeatAsync(stream, heartbeatCts.Token);
+                    try
+                    {
+                        await _syncEngine!.RunEventLoopAsync(stream, ct);
+                    }
+                    finally
+                    {
+                        heartbeatCts.Cancel();
+                        try { await heartbeat; } catch { /* ignore */ }
+                    }
                 }
             }
             catch (OperationCanceledException)
@@ -135,6 +152,26 @@ public sealed class TrayAppContext : ApplicationContext
             }
         }
         _eventStream = null;
+    }
+
+    private static async Task RunHeartbeatAsync(HttpEventStream stream, CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            // 10 秒待機 → ハートビート 1 回送信。キャンセル時に WaitOne(true) で即抜け。
+            if (ct.WaitHandle.WaitOne(WssHeartbeatInterval)) break;
+
+            try
+            {
+                await stream.SendHeartbeatAsync(ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) { break; }
+            catch (Exception ex)
+            {
+                // ソケットが死んでいれば外側のループが再接続する。ここでは握り潰し。
+                Trace.WriteLine($"Heartbeat failed: {ex.Message}");
+            }
+        }
     }
 
     private void SetStatus(string text)
