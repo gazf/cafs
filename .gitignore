@@ -3,6 +3,7 @@
 
 # Server
 server/storage/
+server/cafs-server.log
 
 # Client build output
 client/src/*/bin/
