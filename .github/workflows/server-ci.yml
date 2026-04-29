@@ -19,29 +19,23 @@ jobs:
   fmt:
     name: deno fmt
     runs-on: ubuntu-latest
+    container: denoland/deno:2.7.1
     steps:
       - uses: actions/checkout@v4
-      - uses: denoland/setup-deno@v2
-        with:
-          deno-version: v2.x
       - run: deno fmt --check
 
   lint:
     name: deno lint
     runs-on: ubuntu-latest
+    container: denoland/deno:2.7.1
     steps:
       - uses: actions/checkout@v4
-      - uses: denoland/setup-deno@v2
-        with:
-          deno-version: v2.x
       - run: deno lint
 
   test:
     name: deno test
     runs-on: ubuntu-latest
+    container: denoland/deno:2.7.1
     steps:
       - uses: actions/checkout@v4
-      - uses: denoland/setup-deno@v2
-        with:
-          deno-version: v2.x
       - run: deno task test
