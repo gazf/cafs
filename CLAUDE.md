@@ -1,68 +1,59 @@
 # cafs - Cloud API File System
 
-## プロジェクト概要
+## Overview
 
-Windows CfApi (Cloud Files API) を利用したモダンなファイル共有システム。
-サーバが配信するファイルツリーをクライアントが placeholder として展開し、
-on-demand hydration / write-back / WSS 経由のリアルタイム同期で動作する。
+Modern file-sharing system built on Windows CfApi (Cloud Files API). The server publishes a file tree; the client materializes it as placeholders and runs on-demand hydration, write-back, and real-time sync over WSS.
 
-## 構成
+## Layout
 
 - `server/` — Deno + TypeScript (Hono, Deno KV)
-- `client/` — C# .NET 10 / Windows Forms。Clean Architecture 5 層構成。
-  - `CfApi.Native` — `cldapi.dll` の P/Invoke 宣言と unsafe 構造体・enum
-  - `CfApi.Interop` — `[UnmanagedCallersOnly]` のディスパッチ・unsafe → managed 変換・
-    OplockFileHandle などのマネージドラッパー
-  - `Cafs.Core` — ドメインモデル・抽象 (`ICafsServer`, `IEventStream`)・SyncEngine・
-    `ISyncCallbacks` 実装 (`CafsSyncCallbacks`)
-  - `Cafs.Transport` — REST/WSS の HTTP 実装 (`HttpCafsServer`, `HttpEventStream`)
-  - `Cafs.App` — WinForms ホスト (TrayAppContext, SettingsForm)
+- `client/` — C# .NET 10 / Windows Forms. Clean Architecture, 5 layers:
+  - `CfApi.Native` — `cldapi.dll` P/Invoke declarations and unsafe structs/enums
+  - `CfApi.Interop` — `[UnmanagedCallersOnly]` dispatch, unsafe → managed conversion, managed wrappers like `OplockFileHandle`
+  - `Cafs.Core` — domain models, abstractions (`ICafsServer`, `IEventStream`), `SyncEngine`, `ISyncCallbacks` impl (`CafsSyncCallbacks`)
+  - `Cafs.Transport` — REST/WSS HTTP impl (`HttpCafsServer`, `HttpEventStream`)
+  - `Cafs.App` — WinForms host (`TrayAppContext`, `SettingsForm`)
 
-## 現在の実装状況
+## Current implementation
 
-- プレースホルダー: `CF_POPULATION_POLICY_ALWAYS_FULL` + WSS 駆動 ([ADR-013](docs/decisions.md))
-- 読み取り: FETCH_DATA で on-demand hydration、レスポンスの `X-File-Attributes` で RO 反映 (ADR-019)
-- 書き戻し: NOTIFY_FILE_CLOSE_COMPLETION で modified 検出 → ロック確保 (open 時に取得済み)
-  → アップロード → `UpdatePlaceholder` でメタデータ同期 → `SetInSyncState(true)` → ロック解放
-  → dehydrate
-- ロック: open 時に Device ID 単位で取得 (ADR-016)、(userId, deviceId) で識別、
-  Deno KV `expireIn` 30 秒 + WSS heartbeat 10 秒で延長 (ADR-018)。
-  他 device の保持中ファイルは X-File-Attributes / WSS lock_acquired で RO 反映 (ADR-019)
-- Device ID: クライアント実行ファイル同ディレクトリの `device.json` に永続化
-- 認可: REST/WSS いずれも `checkPermission` でフィルタ
+- Placeholders: `CF_POPULATION_POLICY_ALWAYS_FULL` + WSS-driven ([ADR-013](docs/decisions.md))
+- Read: on-demand hydration via FETCH_DATA; RO reflected from `X-File-Attributes` response header (ADR-019)
+- Write-back: NOTIFY_FILE_CLOSE_COMPLETION detects modify → ensure lock (acquired at open) → upload → `UpdatePlaceholder` for metadata sync → `SetInSyncState(true)` → release lock → dehydrate
+- Locking: acquired at open per Device ID (ADR-016); identified by `(userId, deviceId)`; TTL via Deno KV `expireIn` 30s + WSS heartbeat 10s (ADR-018). Files held by another device are flagged RO via `X-File-Attributes` and WSS `lock_acquired` (ADR-019)
+- Device ID: persisted in `device.json` next to the client executable
+- Authorization: REST and WSS both filter through `checkPermission`
 
-## サーバー開発
+## Server dev
 
 ```bash
 cd server
-deno task dev      # 開発サーバー起動 (port 8700, --watch)
-deno task test     # テスト実行
-deno task seed     # 初期データ投入
+deno task dev      # dev server (port 8700, --watch)
+deno task test
+deno task seed     # initial data
 ```
 
-## クライアント開発
+## Client dev
 
 ```bash
 cd client
-dotnet build                       # ビルド
-dotnet run --project src/Cafs.App  # 実行 (Windows のみ)
+dotnet build
+dotnet run --project src/Cafs.App  # Windows only
 ```
 
-## コーディング規約
+## Coding rules
 
-- サーバー: TypeScript strict mode, Hono 標準パターン
-- REST API のパスは全てフォワードスラッシュ、ストレージルート相対
-- パス検証必須: `..` や null バイトを拒否
-- Deno KV の atomic 操作で競合を防止
-- C#: `unsafe` は CfApi.Native/Interop の Internal に閉じ込め、上位層は managed のみ
-- C#: zero-alloc 優先 (DTO は readonly struct, ArrayPool 利用, stackalloc + ArrayPool フォールバック)
+- Server: TypeScript strict mode, idiomatic Hono patterns
+- REST API paths: forward slashes, relative to storage root
+- Path validation required: reject `..` and null bytes
+- Use Deno KV atomic ops to prevent races
+- C#: `unsafe` confined to `CfApi.Native`/`CfApi.Interop` internals; upper layers stay fully managed
+- C#: prefer zero-alloc (DTOs as `readonly struct`, `ArrayPool`, `stackalloc` with `ArrayPool` fallback)
 
-## ドキュメント
+## Docs
 
 - [docs/decisions.md](docs/decisions.md) — Architecture Decision Records
 
-## ログ
+## Logs
 
-- サーバ: `server/cafs-server.log`(`console.log/warn/error` を tee、追記モード)
-- クライアント: `client/src/Cafs.App/bin/Debug/<TFM>/cafs-client.log`
-  (`Trace.WriteLine` + 未捕捉例外を `[FATAL]`/`[ERROR]` で記録)
+- Server: `server/cafs-server.log` (`console.log/warn/error` tee, append mode)
+- Client: `client/src/Cafs.App/bin/Debug/<TFM>/cafs-client.log` (`Trace.WriteLine` + uncaught exceptions logged as `[FATAL]`/`[ERROR]`)
