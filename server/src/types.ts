@@ -32,8 +32,18 @@ export interface AuditEntry {
 
 export interface LockData {
   userId: number;
+  deviceId: string;
   acquiredAt: string;
   expiresAt: string;
+}
+
+export interface DeviceData {
+  deviceId: string;
+  userId: number;
+  label?: string;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  ipAddress?: string;
 }
 
 export interface FileEntry {

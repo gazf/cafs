@@ -20,7 +20,7 @@ export function registerLockRoutes(app: Hono<Env>) {
       return c.json({ message: "Forbidden" }, 403);
     }
 
-    const result = await acquireLock(filePath, user.id);
+    const result = await acquireLock(filePath, user.id, user.deviceId);
     if (!result.success) {
       return c.json({ message: result.message, lock: result.lock }, 409);
     }
@@ -34,7 +34,7 @@ export function registerLockRoutes(app: Hono<Env>) {
     const filePath = "/" + wildcard;
     const user = c.get("user");
 
-    const released = await releaseLock(filePath, user.id);
+    const released = await releaseLock(filePath, user.id, user.deviceId);
     if (!released) {
       return c.json({ message: "Not the lock holder" }, 403);
     }

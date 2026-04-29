@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Windows.Forms;
 using Cafs.App.Config;
+using Cafs.Core.Identity;
 using Cafs.Core.Sync;
 using Cafs.Transport;
 using CfApi.Interop;
@@ -74,9 +75,11 @@ public sealed class TrayAppContext : ApplicationContext
         try
         {
             SetStatus("Connecting...");
+            var deviceId = DeviceIdProvider.GetOrCreate();
             var http = new HttpClient();
             http.DefaultRequestHeaders.Authorization =
                 new AuthenticationHeaderValue("Bearer", _settings.BearerToken);
+            http.DefaultRequestHeaders.Add("X-Device-Id", deviceId);
             _server = new HttpCafsServer(http, _settings.ServerUrl);
             Directory.CreateDirectory(_settings.SyncRootPath);
 

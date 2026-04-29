@@ -11,9 +11,10 @@ public sealed class CafsSyncCallbacks : ISyncCallbacks
     private const int HydrateChunkSize = 65_536;
 
     /// <summary>
-    /// アップロード中のロック renew 周期。サーバ側 lock TTL (15分) より十分短く。
+    /// アップロード中のロック renew 周期。サーバ側 lock TTL (30 秒、ADR-018) より
+    /// 短くして 1 回分の猶予を残す。Step 2 で WSS heartbeat に集約されるまでの暫定。
     /// </summary>
-    private static readonly TimeSpan LockHeartbeatInterval = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan LockHeartbeatInterval = TimeSpan.FromSeconds(10);
 
     /// <summary>STATUS_ACCESS_DENIED — placeholder の delete を拒否する時に返す。</summary>
     private const int StatusAccessDenied = unchecked((int)0xC0000022);

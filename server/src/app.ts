@@ -5,10 +5,11 @@ import { registerFileRoutes } from "./routes/files.ts";
 import { registerLockRoutes } from "./routes/locks.ts";
 import { registerEventRoutes } from "./routes/events.ts";
 import { auditLogger } from "./middleware/logger.ts";
+import type { AuthUser } from "./services/auth.service.ts";
 
 type Env = {
   Variables: {
-    user: { id: number; name: string };
+    user: AuthUser;
   };
 };
 

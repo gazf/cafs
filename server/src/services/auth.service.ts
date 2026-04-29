@@ -1,6 +1,12 @@
 import { getKv } from "../kv/store.ts";
 import { Keys } from "../kv/keys.ts";
-import type { TokenData, User, Permission, AccessLevel } from "../types.ts";
+import type {
+  TokenData,
+  User,
+  Permission,
+  AccessLevel,
+  DeviceData,
+} from "../types.ts";
 
 async function sha256(input: string): Promise<string> {
   const data = new TextEncoder().encode(input);
@@ -18,14 +24,49 @@ export async function hashToken(token: string): Promise<string> {
   return await sha256(token);
 }
 
-export interface AuthUser {
+export interface TokenIdentity {
   id: number;
   name: string;
 }
 
+export interface AuthUser extends TokenIdentity {
+  deviceId: string;
+}
+
+export async function upsertDevice(
+  deviceId: string,
+  userId: number,
+  ipAddress?: string,
+): Promise<void> {
+  const kv = await getKv();
+  const now = new Date().toISOString();
+  const existing = await kv.get<DeviceData>(Keys.device(deviceId));
+
+  const device: DeviceData = existing.value
+    ? {
+        ...existing.value,
+        userId,
+        lastSeenAt: now,
+        ipAddress,
+      }
+    : {
+        deviceId,
+        userId,
+        firstSeenAt: now,
+        lastSeenAt: now,
+        ipAddress,
+      };
+
+  await kv
+    .atomic()
+    .set(Keys.device(deviceId), device)
+    .set(Keys.deviceByUser(userId, deviceId), true)
+    .commit();
+}
+
 export async function validateToken(
   rawToken: string
-): Promise<AuthUser | null> {
+): Promise<TokenIdentity | null> {
   const kv = await getKv();
   const tokenHash = await hashToken(rawToken);
   const entry = await kv.get<TokenData>(Keys.token(tokenHash));

@@ -2,7 +2,9 @@ import { getKv } from "../kv/store.ts";
 import { Keys } from "../kv/keys.ts";
 import type { LockData } from "../types.ts";
 
-const DEFAULT_LOCK_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
+// ADR-018: Liveness 管理は WSS heartbeat による KV expireIn の延長で行う。
+// 30 秒は heartbeat 10 秒間隔 × 3 回分の猶予 (一時的なネット断 2 回まで耐える)。
+const LOCK_TTL_MS = 30 * 1000;
 
 export interface LockResult {
   success: boolean;
@@ -13,51 +15,44 @@ export interface LockResult {
 export async function acquireLock(
   filePath: string,
   userId: number,
-  timeoutMs: number = DEFAULT_LOCK_TIMEOUT_MS
+  deviceId: string,
+  timeoutMs: number = LOCK_TTL_MS
 ): Promise<LockResult> {
   const kv = await getKv();
   const key = Keys.lock(filePath);
 
   const existing = await kv.get<LockData>(key);
 
-  // Check if already locked by someone else
   if (existing.value) {
-    // Check if expired
-    if (new Date(existing.value.expiresAt) > new Date()) {
-      if (existing.value.userId === userId) {
-        // Renew lock
-        const lock: LockData = {
-          userId,
-          acquiredAt: existing.value.acquiredAt,
-          expiresAt: new Date(Date.now() + timeoutMs).toISOString(),
-        };
-        const result = await kv
-          .atomic()
-          .check(existing)
-          .set(key, lock)
-          .commit();
-        if (result.ok) {
-          return { success: true, lock };
-        }
-        return { success: false, message: "Conflict" };
-      }
+    if (existing.value.userId !== userId) {
+      // 他ユーザー保持中 → 拒否
       return {
         success: false,
         lock: existing.value,
         message: "Locked by another user",
       };
     }
-    // Lock expired, take over
+    // 同一ユーザー: 同じ deviceId なら renew、別 deviceId なら取り戻し (ADR-018)
   }
 
+  const now = new Date();
   const lock: LockData = {
     userId,
-    acquiredAt: new Date().toISOString(),
-    expiresAt: new Date(Date.now() + timeoutMs).toISOString(),
+    deviceId,
+    acquiredAt: existing.value?.acquiredAt ?? now.toISOString(),
+    expiresAt: new Date(now.getTime() + timeoutMs).toISOString(),
   };
 
-  // Atomic: only set if the value hasn't changed
-  const result = await kv.atomic().check(existing).set(key, lock).commit();
+  // 取り戻しの場合は古い deviceId の逆引きインデックスも削除する。
+  const tx = kv.atomic().check(existing);
+  if (existing.value && existing.value.deviceId !== deviceId) {
+    tx.delete(Keys.deviceLock(existing.value.deviceId, filePath));
+  }
+
+  const result = await tx
+    .set(key, lock, { expireIn: timeoutMs })
+    .set(Keys.deviceLock(deviceId, filePath), null, { expireIn: timeoutMs })
+    .commit();
 
   if (!result.ok) {
     return { success: false, message: "Conflict" };
@@ -68,7 +63,8 @@ export async function acquireLock(
 
 export async function releaseLock(
   filePath: string,
-  userId: number
+  userId: number,
+  deviceId: string
 ): Promise<boolean> {
   const kv = await getKv();
   const key = Keys.lock(filePath);
@@ -77,26 +73,26 @@ export async function releaseLock(
   if (!existing.value) return true; // Already unlocked
 
   if (existing.value.userId !== userId) {
-    return false; // Not the holder
+    return false; // 他ユーザー保持中: 解除不可
   }
 
-  const result = await kv.atomic().check(existing).delete(key).commit();
+  // 同一ユーザーなら deviceId が異なっても解除を許す (取り戻し中に旧端末が
+  // close した時に現端末のロックを誤って消さないよう、deviceId 一致時のみ
+  // 逆引きインデックスも削除する)。
+  const tx = kv.atomic().check(existing).delete(key);
+  if (existing.value.deviceId === deviceId) {
+    tx.delete(Keys.deviceLock(deviceId, filePath));
+  }
+
+  const result = await tx.commit();
   return result.ok;
 }
 
 export async function getLock(filePath: string): Promise<LockData | null> {
   const kv = await getKv();
   const entry = await kv.get<LockData>(Keys.lock(filePath));
-  if (!entry.value) return null;
-
-  // Check if expired
-  if (new Date(entry.value.expiresAt) <= new Date()) {
-    // Clean up expired lock
-    await kv.atomic().check(entry).delete(Keys.lock(filePath)).commit();
-    return null;
-  }
-
-  return entry.value;
+  // KV expireIn により満期判定は不要。値があれば有効。
+  return entry.value ?? null;
 }
 
 export async function isLockedByOther(

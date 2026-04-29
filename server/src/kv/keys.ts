@@ -10,6 +10,9 @@
  * ["tokens_by_user", userId, tokenHash] → true
  * ["audit", timestamp, id]           → AuditEntry
  * ["locks", path]                    → LockData
+ * ["devices", deviceId]              → DeviceData
+ * ["devices_by_user", userId, deviceId] → true
+ * ["device_locks", deviceId, path]   → null (deviceId 逆引きインデックス)
  * ["counters", entity]               → number (auto-increment)
  */
 
@@ -46,5 +49,24 @@ export const Keys = {
   ],
   auditPrefix: (): Deno.KvKey => ["audit"],
   lock: (path: string): Deno.KvKey => ["locks", path],
+  device: (deviceId: string): Deno.KvKey => ["devices", deviceId],
+  deviceByUser: (userId: number, deviceId: string): Deno.KvKey => [
+    "devices_by_user",
+    userId,
+    deviceId,
+  ],
+  devicesByUserPrefix: (userId: number): Deno.KvKey => [
+    "devices_by_user",
+    userId,
+  ],
+  deviceLock: (deviceId: string, path: string): Deno.KvKey => [
+    "device_locks",
+    deviceId,
+    path,
+  ],
+  deviceLocksPrefix: (deviceId: string): Deno.KvKey => [
+    "device_locks",
+    deviceId,
+  ],
   counter: (entity: string): Deno.KvKey => ["counters", entity],
 } as const;
