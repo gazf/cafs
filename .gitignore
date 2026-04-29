@@ -8,6 +8,8 @@ server/cafs-server.log
 # Client build output
 client/src/*/bin/
 client/src/*/obj/
+client/tests/*/bin/
+client/tests/*/obj/
 
 # IDE
 .vs/

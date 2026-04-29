@@ -1,0 +1,40 @@
+name: client-quality
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "client/**"
+      - ".github/workflows/client-quality.yml"
+  pull_request:
+    paths:
+      - "client/**"
+      - ".github/workflows/client-quality.yml"
+
+defaults:
+  run:
+    working-directory: client
+
+jobs:
+  build:
+    name: dotnet build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      # Cafs.Client.sln は net10.0-windows TFM を使うが、Directory.Build.props で
+      # EnableWindowsTargeting=true を立てているため Linux でもビルド可能。
+      - run: dotnet restore Cafs.Client.sln
+      - run: dotnet build Cafs.Client.sln --no-restore --configuration Debug
+
+  test:
+    name: dotnet test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - run: dotnet test Cafs.Client.sln --configuration Debug
