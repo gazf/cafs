@@ -46,6 +46,24 @@ public sealed class CafsSyncCallbacks : ISyncCallbacks
         }
     }
 
+    /// <summary>
+    /// ADR-016: open 時にサーバ側ロックを best-effort 取得。失敗しても open は成功させる
+    /// (close 時に再取得を試みる + ADR-019 で RO 反映)。
+    /// </summary>
+    public async Task OnFileOpenAsync(string relativePath, CancellationToken ct)
+    {
+        try
+        {
+            var lockInfo = await _server.AcquireLockAsync(relativePath, ct).ConfigureAwait(false);
+            if (lockInfo is null)
+                Trace.WriteLine($"FileOpen: lock denied (held by other): {relativePath}");
+        }
+        catch (Exception ex)
+        {
+            Trace.WriteLine($"FileOpen lock attempt failed: {relativePath}: {ex.Message}");
+        }
+    }
+
     public async Task<int> OnDeleteAsync(string relativePath, CancellationToken ct)
     {
         try
@@ -73,17 +91,30 @@ public sealed class CafsSyncCallbacks : ISyncCallbacks
     public async Task<bool> OnFileCloseAsync(string relativePath, bool isDeleted, bool isModified, CancellationToken ct)
     {
         if (isDeleted) return true;          // 既に削除されたファイルは dehydrate もしない (関係なし)
-        if (!isModified) return true;        // 読み取りだけだった → そのまま dehydrate OK
+
+        // ADR-016: open 時に取得済みのロックを read-only クローズでも必ず解放する。
+        if (!isModified)
+        {
+            try
+            {
+                await _server.ReleaseLockAsync(relativePath, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"ReleaseLock (read-only close) failed: {relativePath}: {ex.Message}");
+            }
+            return true;
+        }
 
         var localPath = Path.Combine(
             _syncRootPath,
             relativePath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
 
-        // (2) ロック取得試行
+        // (2) ロックを確実に保持しているか確認 (open 時に取れていれば renew、取れていなければ再取得)
         var lockInfo = await TryAcquireLockAsync(relativePath, ct).ConfigureAwait(false);
         if (lockInfo is null)
         {
-            // 他ユーザーが編集中 → ローカル変更を conflict file に退避
+            // 他ユーザーが編集中 → ローカル変更を conflict file に退避 (ADR-017)
             return await SaveAsConflictFileAsync(relativePath, localPath).ConfigureAwait(false);
         }
 

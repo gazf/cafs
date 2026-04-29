@@ -8,6 +8,13 @@ public interface ISyncCallbacks
     Task HydrateAsync(string relativePath, long offset, long length, DataTransfer transfer, CancellationToken ct);
 
     /// <summary>
+    /// NOTIFY_OPEN_COMPLETION: ファイル open 後のフック (ADR-016)。
+    /// best-effort で server 側ロックを取得する。失敗しても open 自体は成功させる
+    /// (RO 反映は ADR-019 の X-File-Attributes / WSS broadcast に委ねる)。
+    /// </summary>
+    Task OnFileOpenAsync(string relativePath, CancellationToken ct);
+
+    /// <summary>
     /// NOTIFY_DELETE: ローカル削除をサーバへ伝播。
     /// 戻り値: 0 = 削除許可 / NTSTATUS = 削除拒否。
     /// </summary>

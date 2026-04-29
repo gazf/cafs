@@ -127,8 +127,8 @@ internal static class UnmanagedEntryPoints
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
     private static unsafe void OnOpenCompletion(CF_CALLBACK_INFO* info, CF_CALLBACK_PARAMETERS* parameters)
     {
-        // open 時点では何も dispatch しない。close 時の変更検知用に LastWriteTime のスナップショットだけ取る。
-        // (ロック取得は close 時に modified=true の場合のみ行う方針 — issue #12)
+        // ADR-014: close 時の変更検知用に LastWriteTime のスナップショットを記録。
+        // ADR-016: 同時にサーバ側ロックを best-effort 取得 (失敗しても open は成功させる)。
         var ctx = SyncContext.FromPointer(info->CallbackContext);
         var relativePath = Marshaller.GetRelativePath(info, ctx.SyncRootPath);
         if (string.IsNullOrEmpty(relativePath) || relativePath == "/")
@@ -147,6 +147,21 @@ internal static class UnmanagedEntryPoints
         var writeTime = File.GetLastWriteTimeUtc(localPath);
         ctx.OpenFileWriteTimes[relativePath] = writeTime;
         Trace.WriteLine($"FileOpen: {relativePath} (writeTime={writeTime:O})");
+
+        // ロック取得は OS callback をブロックしないようバックグラウンド dispatch。
+        _ = DispatchOpenAsync(ctx, relativePath);
+    }
+
+    private static async Task DispatchOpenAsync(SyncContext ctx, string relativePath)
+    {
+        try
+        {
+            await ctx.Callbacks.OnFileOpenAsync(relativePath, ctx.ShutdownCts.Token).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Trace.WriteLine($"FileOpen dispatch error: {ex.Message}");
+        }
     }
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
