@@ -18,10 +18,16 @@ const peers = new Set<Peer>();
 
 export function registerSocket(peer: Peer): void {
   peers.add(peer);
+  console.log(
+    `[wss] registered peer userId=${peer.userId} deviceId=${peer.deviceId.slice(0, 8)} (total=${peers.size})`,
+  );
 }
 
 export function unregisterSocket(peer: Peer): void {
   peers.delete(peer);
+  console.log(
+    `[wss] unregistered peer deviceId=${peer.deviceId.slice(0, 8)} (total=${peers.size})`,
+  );
 }
 
 export interface LockHolder {
@@ -41,6 +47,9 @@ export async function broadcastLockEvent(
   filePath: string,
   holder: { userId: number; deviceId: string },
 ): Promise<void> {
+  console.log(
+    `[broadcast] ${event} path=${filePath} holder=${holder.deviceId.slice(0, 8)} peers=${peers.size}`,
+  );
   if (peers.size === 0) return;
 
   const name = await resolveHolderName(holder.userId);
@@ -50,6 +59,7 @@ export async function broadcastLockEvent(
     holder: { ...holder, name } satisfies LockHolder,
   });
 
+  let sent = 0;
   // 認可チェックは並列に。失敗 (権限なし) は黙って配信スキップ。
   await Promise.all(
     [...peers].map(async (peer) => {
@@ -57,9 +67,11 @@ export async function broadcastLockEvent(
       try {
         if (!(await checkPermission(peer.userId, filePath, "read"))) return;
         peer.socket.send(payload);
+        sent++;
       } catch (err) {
         console.error("broadcastLockEvent send failed:", err);
       }
     }),
   );
+  console.log(`[broadcast] ${event} delivered to ${sent}/${peers.size} peers`);
 }

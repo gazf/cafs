@@ -86,14 +86,25 @@ export function registerEventRoutes(app: Hono<Env>) {
         return;
       }
 
-      if (msg.deviceId !== user.deviceId) return;
+      if (msg.deviceId !== user.deviceId) {
+        console.log(
+          `[wss] message rejected (deviceId mismatch): expected=${user.deviceId.slice(0, 8)} got=${(msg.deviceId ?? "").slice(0, 8)} type=${msg.type}`,
+        );
+        return;
+      }
 
       if (msg.type === "heartbeat") {
-        refreshDeviceLocks(user.deviceId).catch((err) => {
+        console.log(`[wss] heartbeat from deviceId=${user.deviceId.slice(0, 8)}`);
+        refreshDeviceLocks(user.deviceId).then((n) => {
+          if (n > 0) console.log(`[wss] refreshed ${n} lock(s) for ${user.deviceId.slice(0, 8)}`);
+        }).catch((err) => {
           console.error("refreshDeviceLocks failed:", err);
         });
       } else if (msg.type === "terminate") {
-        releaseDeviceLocks(user.deviceId).catch((err) => {
+        console.log(`[wss] terminate from deviceId=${user.deviceId.slice(0, 8)}`);
+        releaseDeviceLocks(user.deviceId).then((n) => {
+          console.log(`[wss] terminate released ${n} lock(s) for ${user.deviceId.slice(0, 8)}`);
+        }).catch((err) => {
           console.error("releaseDeviceLocks failed:", err);
         });
       }

@@ -65,9 +65,11 @@ public sealed class CafsSyncCallbacks : ISyncCallbacks
             var lockInfo = await _server.AcquireLockAsync(relativePath, ct).ConfigureAwait(false);
             if (lockInfo is null)
             {
-                Trace.WriteLine($"FileOpen: lock denied (held by other): {relativePath}");
+                Trace.WriteLine($"FileOpen lock: denied (held by other): {relativePath}");
                 return;
             }
+
+            Trace.WriteLine($"FileOpen lock: acquired {relativePath}");
 
             // 取得成功 → 自端末がホルダーなので RO を外す。WSS 取りこぼしで RO が
             // 残っていた場合の救済 (ADR-019)。

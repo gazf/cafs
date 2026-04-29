@@ -79,6 +79,7 @@ public sealed class TrayAppContext : ApplicationContext
         {
             SetStatus("Connecting...");
             _deviceId = DeviceIdProvider.GetOrCreate();
+            Trace.WriteLine($"Device ID: {_deviceId}");
             var http = new HttpClient();
             http.DefaultRequestHeaders.Authorization =
                 new AuthenticationHeaderValue("Bearer", _settings.BearerToken);
@@ -156,6 +157,7 @@ public sealed class TrayAppContext : ApplicationContext
 
     private static async Task RunHeartbeatAsync(HttpEventStream stream, CancellationToken ct)
     {
+        var sentCount = 0;
         while (!ct.IsCancellationRequested)
         {
             // 10 秒待機 → ハートビート 1 回送信。キャンセル時に WaitOne(true) で即抜け。
@@ -164,6 +166,10 @@ public sealed class TrayAppContext : ApplicationContext
             try
             {
                 await stream.SendHeartbeatAsync(ct).ConfigureAwait(false);
+                sentCount++;
+                // 初回 + 以後は 6 回ごと (= 1 分) にだけログ出力 (ノイズ抑制)。
+                if (sentCount == 1 || sentCount % 6 == 0)
+                    Trace.WriteLine($"WSS heartbeat sent (total={sentCount})");
             }
             catch (OperationCanceledException) { break; }
             catch (Exception ex)
