@@ -1,15 +1,15 @@
-name: server-ci
+name: server-quality
 
 on:
   push:
     branches: [main]
     paths:
       - "server/**"
-      - ".github/workflows/server-ci.yml"
+      - ".github/workflows/server-quality.yml"
   pull_request:
     paths:
       - "server/**"
-      - ".github/workflows/server-ci.yml"
+      - ".github/workflows/server-quality.yml"
 
 defaults:
   run:
