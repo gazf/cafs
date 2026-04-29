@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text;
+using System.Windows.Forms;
 
 namespace Cafs.App.Util;
 
@@ -30,7 +31,36 @@ public static class FileLogger
         Console.SetOut(new FileTextWriter(isError: false));
         Console.SetError(new FileTextWriter(isError: true));
 
+        // 全域の例外捕捉。fire-and-forget タスクや UI スレッドで投げられた例外も
+        // すべて cafs-client.log に集約し、サイレントクラッシュをなくす。
+        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+        {
+            Write($"[FATAL] AppDomain.UnhandledException (terminating={e.IsTerminating}): {FormatException(e.ExceptionObject as Exception)}");
+        };
+
+        TaskScheduler.UnobservedTaskException += (_, e) =>
+        {
+            Write($"[ERROR] UnobservedTaskException: {FormatException(e.Exception)}");
+            e.SetObserved(); // プロセス終了を抑制 (.NET 4.5+ 既定でも終了しないが明示)
+        };
+
+        Application.ThreadException += (_, e) =>
+        {
+            Write($"[ERROR] WinForms ThreadException: {FormatException(e.Exception)}");
+        };
+        // ThreadExceptionDialog ではなく ThreadException ハンドラに流す。
+        Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+
         Write($"--- cafs-client started at {DateTime.Now:yyyy-MM-dd HH:mm:ss} ---");
+    }
+
+    private static string FormatException(Exception? ex)
+    {
+        if (ex is null) return "(null exception)";
+        // インデントなしの ToString() は読みにくいので 1 行ずつ "    " 付きで折り畳む。
+        var dump = ex.ToString();
+        return Environment.NewLine + string.Join(Environment.NewLine,
+            dump.Split('\n').Select(l => "    " + l.TrimEnd('\r')));
     }
 
     internal static void Write(string line)
