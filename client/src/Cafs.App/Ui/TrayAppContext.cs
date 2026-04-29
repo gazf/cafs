@@ -128,15 +128,17 @@ public sealed class TrayAppContext : ApplicationContext
                 _eventStream = stream;
                 await using (stream)
                 {
-                    var heartbeat = RunHeartbeatAsync(stream, heartbeatCts.Token);
+                    // 同期ブロッキング (WaitHandle.WaitOne) が UI スレッドを止めるのを防ぐため
+                    // Task.Run で threadpool に逃がす。
+                    var heartbeat = Task.Run(() => RunHeartbeatAsync(stream, heartbeatCts.Token));
                     try
                     {
-                        await _syncEngine!.RunEventLoopAsync(stream, ct);
+                        await _syncEngine!.RunEventLoopAsync(stream, ct).ConfigureAwait(false);
                     }
                     finally
                     {
                         heartbeatCts.Cancel();
-                        try { await heartbeat; } catch { /* ignore */ }
+                        try { await heartbeat.ConfigureAwait(false); } catch { /* ignore */ }
                     }
                 }
             }

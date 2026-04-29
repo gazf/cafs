@@ -49,7 +49,9 @@ public sealed class HttpEventStream : IEventStream
             WebSocketReceiveResult result;
             try
             {
-                result = await _ws.ReceiveAsync(buffer, ct);
+                // ConfigureAwait(false): UI sync context にコールバックを post しない。
+                // RunHeartbeatAsync が UI スレッドを掴んでいた頃の経緯で、念のため明示。
+                result = await _ws.ReceiveAsync(buffer, ct).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
