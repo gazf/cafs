@@ -60,3 +60,9 @@ dotnet run --project src/Cafs.App  # 実行 (Windows のみ)
 ## ドキュメント
 
 - [docs/decisions.md](docs/decisions.md) — Architecture Decision Records
+
+## ログ
+
+- サーバ: `server/cafs-server.log`(`console.log/warn/error` を tee、追記モード)
+- クライアント: `client/src/Cafs.App/bin/Debug/<TFM>/cafs-client.log`
+  (`Trace.WriteLine` + 未捕捉例外を `[FATAL]`/`[ERROR]` で記録)
