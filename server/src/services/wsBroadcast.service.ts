@@ -16,6 +16,11 @@ interface Peer {
 
 const peers = new Set<Peer>();
 
+/** テスト用: peer 集合をリセットする。本番コードからは呼ばない。 */
+export function _clearPeersForTesting(): void {
+  peers.clear();
+}
+
 export function registerSocket(peer: Peer): void {
   peers.add(peer);
   console.log(
